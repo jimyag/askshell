@@ -199,27 +199,150 @@ fi
 '''.replace("__BINARY__", binary)
 
 
+def fish_quote(value):
+    return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
+
+
+def fish_integration(binary):
+    binary = fish_quote(binary)
+    return r'''
+if test "$_ASKSHELL_SESSION_OWNER_PID" != "$fish_pid"
+    set -g _ASKSHELL_SESSION_OWNER_PID "$fish_pid"
+end
+if not set -q ASKSHELL_FISH_INTEGRATION
+    set -g ASKSHELL_FISH_INTEGRATION 1
+    set -gx ASKSHELL_ACTIVE 1
+    set -gx ASKSHELL_BACKEND fish
+    set -g _ASKSHELL_BIN __BINARY__
+
+    function _askshell_query
+        set -e _ASKSHELL_NATIVE_COMMAND
+        "$_ASKSHELL_BIN" event cancel >/dev/null 2>&1
+        set -l result_dir (command mktemp -d "/tmp/askshell.XXXXXXXX")
+        or return 1
+        "$_ASKSHELL_BIN" ask --result-dir "$result_dir" -- (string join ' ' -- $argv)
+        set -l ask_status $status
+        set -l action reject
+        set -l suggested
+        if test -r "$result_dir/action"
+            set action (string trim -- (command cat "$result_dir/action"))
+        end
+        if test -r "$result_dir/command"
+            set suggested (string collect <"$result_dir/command")
+        end
+        command rm -rf -- "$result_dir"
+        if test $ask_status -eq 0
+            if contains -- "$action" execute edit
+                if test -n "$suggested"
+                    commandline -r -- "$suggested"
+                end
+            end
+        end
+        return $ask_status
+    end
+
+    function _askshell_record_preexec --on-event fish_preexec
+        set -g _ASKSHELL_NATIVE_COMMAND "$argv[1]"
+        "$_ASKSHELL_BIN" event start -- "$argv[1]" >/dev/null 2>&1
+    end
+
+    function _askshell_record_postexec --on-event fish_postexec
+        set -l exit_code $status
+        if set -q _ASKSHELL_NATIVE_COMMAND
+            set -e _ASKSHELL_NATIVE_COMMAND
+            "$_ASKSHELL_BIN" event finish --exit-code "$exit_code" >/dev/null 2>&1
+        end
+        return $exit_code
+    end
+
+    function '?'
+        _askshell_query $argv
+    end
+    function '？'
+        _askshell_query $argv
+    end
+
+    if functions -q fish_command_not_found
+        functions -c fish_command_not_found _askshell_previous_command_not_found
+        set -g _ASKSHELL_HAS_COMMAND_NOT_FOUND_HANDLER 1
+    end
+    function fish_command_not_found
+        set -l command_name "$argv[1]"
+        set -l prefix (string sub -s 1 -l 1 -- "$command_name")
+        if test "$prefix" = '?' -o "$prefix" = '？'
+            _askshell_query (string sub -s 2 -- "$command_name") $argv[2..-1]
+            return $status
+        end
+        if set -q _ASKSHELL_HAS_COMMAND_NOT_FOUND_HANDLER
+            _askshell_previous_command_not_found $argv
+            return $status
+        end
+        __fish_default_command_not_found_handler $argv
+    end
+
+    function _askshell_insert_ascii_question
+        if test -z (string trim -- (commandline))
+            commandline -i -- '? '
+        else
+            commandline -i -- '?'
+        end
+    end
+    function _askshell_insert_fullwidth_question
+        if test -z (string trim -- (commandline))
+            commandline -i -- '？ '
+        else
+            commandline -i -- '？'
+        end
+    end
+    if status is-interactive
+        bind '?' _askshell_insert_ascii_question
+        bind '？' _askshell_insert_fullwidth_question
+        bind -M insert '?' _askshell_insert_ascii_question
+        bind -M insert '？' _askshell_insert_fullwidth_question
+    end
+end
+'''.replace("__BINARY__", binary)
+
+
 def run_shell():
     backend = pathlib.Path(os.environ.get("SHELL", "zsh")).name
-    if backend != "zsh":
-        raise RuntimeError(f"remote shell {backend!r} is not supported yet; use zsh")
+    if backend not in ("zsh", "fish"):
+        raise RuntimeError(f"remote shell {backend!r} is not supported; use zsh or fish")
     helper = str(pathlib.Path(__file__).resolve())
-    original_zdotdir = os.environ.get("ZDOTDIR") or os.environ.get("HOME", "")
     runtime_dir = os.environ.get("ASKSHELL_REMOTE_DIR") or tempfile.mkdtemp(prefix="askshell-")
-    rc_dir = pathlib.Path(runtime_dir, "zdot")
-    rc_dir.mkdir(mode=0o700, exist_ok=True)
-    original_rc = pathlib.Path(original_zdotdir, ".zshrc")
-    rc = pathlib.Path(rc_dir, ".zshrc")
-    parts = []
-    if original_rc.is_file():
-        parts.append(f"source {shlex.quote(str(original_rc))}")
-    parts.append('typeset -gx ASKSHELL_SESSION_ID="$ASKSHELL_CONTROL_SESSION_ID"')
-    parts.append("unset ASKSHELL_ZSH_INTEGRATION")
-    parts.append(zsh_integration(helper))
-    rc.write_text("\n".join(parts))
     env = os.environ.copy()
-    env["ZDOTDIR"] = str(rc_dir)
     env["ASKSHELL_CONTROL_SESSION_ID"] = env.get("ASKSHELL_SESSION_ID", "")
+    if backend == "zsh":
+        original_zdotdir = env.get("ZDOTDIR") or env.get("HOME", "")
+        rc_dir = pathlib.Path(runtime_dir, "zdot")
+        rc_dir.mkdir(mode=0o700, exist_ok=True)
+        original_rc = pathlib.Path(original_zdotdir, ".zshrc")
+        rc = pathlib.Path(rc_dir, ".zshrc")
+        parts = []
+        if original_rc.is_file():
+            parts.append(f"source {shlex.quote(str(original_rc))}")
+        parts.append('typeset -gx ASKSHELL_SESSION_ID="$ASKSHELL_CONTROL_SESSION_ID"')
+        parts.append("unset ASKSHELL_ZSH_INTEGRATION")
+        parts.append(zsh_integration(helper))
+        rc.write_text("\n".join(parts))
+        env["ZDOTDIR"] = str(rc_dir)
+    else:
+        original_config_home = env.get("XDG_CONFIG_HOME") or str(
+            pathlib.Path(env.get("HOME", ""), ".config")
+        )
+        config_home = pathlib.Path(runtime_dir, "config")
+        fish_dir = pathlib.Path(config_home, "fish")
+        fish_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        original_config = pathlib.Path(original_config_home, "fish", "config.fish")
+        config = pathlib.Path(fish_dir, "config.fish")
+        parts = []
+        if original_config.is_file():
+            parts.append(f"source {fish_quote(str(original_config))}")
+        parts.append('set -gx ASKSHELL_SESSION_ID "$ASKSHELL_CONTROL_SESSION_ID"')
+        parts.append("set -e ASKSHELL_FISH_INTEGRATION")
+        parts.append(fish_integration(helper))
+        config.write_text("\n".join(parts))
+        env["XDG_CONFIG_HOME"] = str(config_home)
     try:
         return subprocess.call([os.environ.get("SHELL", "/usr/bin/zsh"), "-i"], env=env)
     finally:

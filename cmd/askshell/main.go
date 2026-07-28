@@ -71,7 +71,7 @@ func runSSH(args []string) (returnErr error) {
 func runShell(args []string) (returnErr error) {
 	var backendArg string
 	if len(args) > 1 {
-		return fmt.Errorf("usage: askshell shell [zsh|bash]")
+		return fmt.Errorf("usage: askshell shell [zsh|bash|fish]")
 	}
 	if len(args) == 1 {
 		backendArg = args[0]
@@ -296,7 +296,7 @@ func limitOutput(output []byte, limit int) []byte {
 
 func runInit(args []string) error {
 	if len(args) != 1 {
-		return fmt.Errorf("usage: askshell init <zsh|bash>")
+		return fmt.Errorf("usage: askshell init <zsh|bash|fish>")
 	}
 	backend, err := shell.ResolveBackend(args[0])
 	if err != nil {
@@ -322,9 +322,11 @@ func printHelp(out io.Writer) error {
 
 Usage:
   askshell                    Start $SHELL with askshell enabled
-  askshell shell [zsh|bash]   Start the selected shell with askshell enabled
+  askshell shell [zsh|bash|fish]
+                              Start the selected shell with askshell enabled
   askshell ssh [options] host Connect through SSH with local askshell context
-  askshell init <zsh|bash>    Print a shell integration script
+  askshell init <zsh|bash|fish>
+                              Print a shell integration script
   askshell version      Print the version
 
 Inside askshell:

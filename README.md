@@ -22,7 +22,7 @@
 
 ---
 
-AskShell 为现有 zsh 或 bash 增加一个显式 AI 入口。普通命令仍由当前 Shell
+AskShell 为现有 zsh、bash 或 fish 增加一个显式 AI 入口。普通命令仍由当前 Shell
 原样执行；只有以 `?` 或 `？` 开头的输入才会发送给模型：
 
 ```text
@@ -36,19 +36,19 @@ AI 可以直接回答，也可以建议一条或多条命令。建议命令不�
 
 ## 核心能力
 
-- **真实 Shell**：使用用户现有的 zsh 或 bash，不重新实现命令解析、alias、环境变量、`cd` 或 job control。
+- **真实 Shell**：使用用户现有的 zsh、bash 或 fish，不重新实现命令解析、alias、环境变量、`cd` 或 job control。
 - **显式 AI 入口**：只处理 `?` 和 `？` 请求，不猜测一行输入是命令还是自然语言。
 - **执行前确认**：AI 建议先回到终端输入行，用户保留最终控制权。
-- **会话上下文**：完整模式会记录 zsh 命令、退出码和有界输出；长上下文会滚动压缩。
+- **会话上下文**：完整模式会记录 zsh/fish 命令、退出码和有界输出；长上下文会滚动压缩。
 - **多模型接口**：优先支持 OpenAI Responses API，同时支持 OpenAI Chat Completions-compatible API 和 Anthropic Messages API。
 - **本地与远程一致**：本机模型和上下文可通过加密的 SSH 通道服务远端 Shell。
 - **中英文界面**：终端 UI 默认英文，可通过 `ASKSHELL_LANG=zh` 切换中文。
 
-AskShell 当前是早期版本，支持 macOS、Linux、zsh 和 bash。
+AskShell 当前是早期版本，支持 macOS、Linux、zsh、bash 和 fish。
 
 ## 安装
 
-需要 Go 1.23+，以及 zsh 或 bash。
+需要 Go 1.23+，以及 zsh、bash 或 fish。
 
 ```bash
 go install github.com/jimyag/askshell/cmd/askshell@latest
@@ -77,6 +77,12 @@ bash，在 `.bashrc` 中加入：
 eval "$(askshell init bash)"
 ```
 
+fish，在 `~/.config/fish/config.fish` 中加入：
+
+```fish
+askshell init fish | source
+```
+
 重新打开 Shell 后即可使用。`askshell init` 只输出初始化脚本，不访问模型或网络。
 
 ## 快速开始
@@ -97,8 +103,8 @@ vim main.go
 ?
 ```
 
-zsh 同时支持 `?问题` 和 `? 问题`；AskShell 只在行首问号后自动补空格，
-不会替换 Enter binding。bash 请使用带空格的 `? 问题`。
+zsh 和 fish 同时支持 `?问题` 和 `? 问题`；AskShell 只在行首问号后自动补
+空格，不会替换 Enter binding。bash 请使用带空格的 `? 问题`。
 
 只输入 `?` 时，AskShell 会继续提示输入问题。AI 返回多个命令时，先选择其中
 一个，再决定是否放入终端：
@@ -112,10 +118,11 @@ zsh 同时支持 `?问题` 和 `? 问题`；AskShell 只在行首问号后自动
 askshell
 askshell shell zsh
 askshell shell bash
+askshell shell fish
 ```
 
-启动器直接使用用户现有的 `ZDOTDIR`、`.zshrc` 或 `.bashrc`，不会创建临时
-rc 文件，因此对应配置文件需要已经包含 `eval "$(askshell init ...)"`。
+启动器直接使用用户现有的 `.zshrc`、`.bashrc` 或 `config.fish`，不会创建
+临时 rc 文件，因此对应配置文件需要已经包含上面的初始化命令。
 `askshell` 会在真实 Shell 前建立 PTY 和仅当前用户可访问的 Unix Socket；
 普通输入输出仍原样透传。
 
@@ -124,13 +131,13 @@ rc 文件，因此对应配置文件需要已经包含 `eval "$(askshell init ..
 同一个 Shell 会话会保留全部上下文且不限制轮数；达到长度阈值后，完整历史
 会压缩为滚动摘要并继续累计后续对话。
 
-AskShell 不替换 zsh 的 Enter widget，也不重定向普通命令的 stdout/stderr。
+AskShell 不替换 zsh/fish 的 Enter widget，也不重定向普通命令的 stdout/stderr。
 因此 alias、颜色、流式输出、TTY 检测和交互式程序保持原生行为。在
-`askshell` 完整模式中，PTY 会复制 zsh 非交互命令的有界输出到上下文：
+`askshell` 完整模式中，PTY 会复制 zsh/fish 非交互命令的有界输出到上下文：
 终端显示不截断，内部最多保留 1 MiB，发送给模型时最多保留 64 KiB。检测到
 后续键盘输入或 alternate screen 时，输出会标记为交互式并舍弃。
 
-仅使用 `eval "$(askshell init zsh)"` 的轻量模式仍记录命令和退出码，但无法
+仅加载 shell integration 的轻量模式仍记录 zsh/fish 命令和退出码，但无法
 捕获任意 stdout/stderr。bash 不安装 Enter binding 或 DEBUG trap；AI 建议
 命令会加入历史记录，可按上方向键取出并编辑，普通命令输出暂不进入上下文。
 
@@ -201,9 +208,9 @@ askshell ssh p-qn
 
 AskShell 会为本次连接建立反向 Unix Socket 转发，并向远端 `/tmp` 临时上传
 一个 Python helper。远端退出后 helper 自动删除；模型 API Key、对话上下文
-和模型请求始终留在本机。建议命令仍只放回远端 zsh 输入行，不会自动执行。
+和模型请求始终留在本机。建议命令仍只放回远端 zsh/fish 输入行，不会自动执行。
 
-当前远端完整模式要求远端具备 zsh、Python 3 和 `base64`，并允许 OpenSSH
+当前远端完整模式要求远端使用 zsh 或 fish，具备 Python 3 和 `base64`，并允许 OpenSSH
 StreamLocal 反向转发。嵌套进入另一层 SSH 或 tmux 后不会继续注入 AskShell。
 
 ## 安全边界

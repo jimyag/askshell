@@ -10,6 +10,7 @@ import (
 const (
 	BackendZsh  = "zsh"
 	BackendBash = "bash"
+	BackendFish = "fish"
 )
 
 func ResolveBackend(requested string) (string, error) {
@@ -17,10 +18,10 @@ func ResolveBackend(requested string) (string, error) {
 		requested = filepath.Base(os.Getenv("SHELL"))
 	}
 	switch requested {
-	case BackendZsh, BackendBash:
+	case BackendZsh, BackendBash, BackendFish:
 		return requested, nil
 	default:
-		return "", fmt.Errorf("unsupported shell %q; use zsh or bash", requested)
+		return "", fmt.Errorf("unsupported shell %q; use zsh, bash, or fish", requested)
 	}
 }
 
@@ -30,6 +31,8 @@ func Command(backend string) (*exec.Cmd, error) {
 		return ZshCommand()
 	case BackendBash:
 		return BashCommand()
+	case BackendFish:
+		return FishCommand()
 	default:
 		return nil, fmt.Errorf("unsupported shell %q", backend)
 	}
@@ -41,6 +44,8 @@ func Integration(binary, backend string) (string, error) {
 		return ZshIntegration(binary), nil
 	case BackendBash:
 		return BashIntegration(binary), nil
+	case BackendFish:
+		return FishIntegration(binary), nil
 	default:
 		return "", fmt.Errorf("unsupported shell %q", backend)
 	}
