@@ -1,0 +1,39 @@
+version: 2
+
+project_name: askshell
+
+builds:
+  - id: askshell
+    main: ./cmd/askshell
+    binary: askshell
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+      - -buildvcs=true
+    ldflags:
+      - -s -w
+      - -X main.version={{ .Version }}
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - formats:
+      - binary
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+
+release:
+  github:
+    owner: jimyag
+    name: askshell
+  mode: replace
+
+changelog:
+  use: github-native

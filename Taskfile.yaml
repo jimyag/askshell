@@ -1,0 +1,60 @@
+version: "3"
+
+vars:
+  BINARY: askshell
+  OUTPUT_DIR: bin
+  LDFLAGS: "-s -w"
+
+tasks:
+  default:
+    desc: List all tasks
+    cmds:
+      - task --list-all
+    silent: true
+
+  deps:
+    desc: Install development tools
+    cmds:
+      - task: lint-deps
+      - go install github.com/rhysd/actionlint/cmd/actionlint@latest
+      - go install github.com/goreleaser/goreleaser/v2@latest
+
+  lint-deps:
+    desc: Install golangci-lint
+    cmds:
+      - go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
+
+  fmt:
+    desc: Format Go source files
+    cmds:
+      - golangci-lint fmt
+
+  lint:
+    desc: Lint all Go packages and test files
+    cmds:
+      - golangci-lint run ./...
+      - golangci-lint fmt --diff
+      - actionlint
+
+  test:
+    desc: Run tests with race detection and coverage
+    cmds:
+      - GORACE=atexit_sleep_ms=0 go test -count=1 -trimpath -race -covermode=atomic -coverprofile=coverage.txt ./...
+
+  build:
+    desc: Build the AskShell binary
+    cmds:
+      - mkdir -p {{.OUTPUT_DIR}}
+      - go build -trimpath -ldflags "{{.LDFLAGS}}" -o {{.OUTPUT_DIR}}/{{.BINARY}} ./cmd/askshell
+
+  ci:
+    desc: Run all continuous integration checks
+    cmds:
+      - task: lint
+      - task: test
+      - task: build
+
+  release-snapshot:
+    desc: Build a local snapshot release
+    cmds:
+      - goreleaser release --snapshot --clean

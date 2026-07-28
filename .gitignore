@@ -1,0 +1,5 @@
+/askshell
+/bin/
+/dist/
+/coverage.txt
+*.out
