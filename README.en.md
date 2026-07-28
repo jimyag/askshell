@@ -117,6 +117,31 @@ commands, select one and decide whether to place it into the terminal:
 - `y` / `yes` / `是` / `确认` / `放行`: place it in the input line for review or editing.
 - `n` / `no` / `否` / `拒绝`: reject it.
 
+### fish example
+
+Add the integration to `config.fish` as described above, then start full mode:
+
+```fish
+askshell shell fish
+```
+
+Run commands normally, then ask AskShell to analyze their output:
+
+```text
+$ ps -Ao pid,%cpu,comm | head
+$ ? which process is using the most CPU, and what does it do
+```
+
+If the model suggests another command, entering `y` only places it in the fish
+input line:
+
+```text
+Action: [y/yes] put in terminal  [n/no] reject: y
+$ ps -Ao pid,%cpu,comm | sort -k2 -nr | head
+```
+
+You can still edit it. fish does not execute the command until you press Enter.
+
 You can also start a new interactive shell with AskShell enabled:
 
 ```bash
@@ -215,6 +240,16 @@ Connect to a remote host while keeping the model and context local:
 askshell ssh server
 askshell ssh p-qn
 ```
+
+Use the same interaction after entering the remote shell:
+
+```text
+remote$ free -h
+remote$ ? is the current memory usage healthy
+```
+
+AskShell automatically uses the remote zsh or fish installation; `askshell`
+does not need to be installed remotely.
 
 AskShell creates a reverse Unix socket forwarding and uploads a temporary
 Python helper under remote `/tmp`. The helper is removed when the session exits.

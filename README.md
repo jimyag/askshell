@@ -112,6 +112,30 @@ zsh 和 fish 同时支持 `?问题` 和 `? 问题`；AskShell 只在行首问号
 - `y` / `yes` / `是` / `确认` / `放行`：放入终端输入行，可继续修改。
 - `n` / `no` / `否` / `拒绝`：拒绝。
 
+### fish 使用示例
+
+先按安装说明将 integration 加入 `config.fish`，然后启动完整模式：
+
+```fish
+askshell shell fish
+```
+
+然后像普通 Shell 一样执行命令，并让 AskShell 根据输出继续分析：
+
+```text
+$ ps -Ao pid,%cpu,comm | head
+$ ? 哪个进程占用 CPU 最高，它是做什么的
+```
+
+如果 AI 建议执行新命令，输入 `y` 后，命令只会放回 fish 输入行：
+
+```text
+Action: [y/yes] put in terminal  [n/no] reject: y
+$ ps -Ao pid,%cpu,comm | sort -k2 -nr | head
+```
+
+此时可以继续修改；只有按 Enter 后，fish 才会执行该命令。
+
 也可以启动一个启用 AskShell 的新交互式 Shell：
 
 ```bash
@@ -205,6 +229,15 @@ export ASKSHELL_MODEL=gpt-5.6-luna
 askshell ssh server
 askshell ssh p-qn
 ```
+
+进入远端后继续使用相同的交互方式：
+
+```text
+remote$ free -h
+remote$ ? 当前内存使用是否正常
+```
+
+AskShell 会自动使用远端的 zsh 或 fish；远端不需要安装 `askshell`。
 
 AskShell 会为本次连接建立反向 Unix Socket 转发，并向远端 `/tmp` 临时上传
 一个 Python helper。远端退出后 helper 自动删除；模型 API Key、对话上下文
