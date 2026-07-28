@@ -105,6 +105,26 @@ if [[ -z "${ASKSHELL_ZSH_INTEGRATION:-}" ]]; then
   alias '?'='_askshell_query'
   alias '？'='_askshell_query'
 
+  if (( $+functions[command_not_found_handler] )); then
+    functions[_askshell_previous_command_not_found_handler]="$functions[command_not_found_handler]"
+    typeset -g _ASKSHELL_HAS_COMMAND_NOT_FOUND_HANDLER=1
+  fi
+
+  function command_not_found_handler() {
+    local command_name="$1"
+    if [[ "$command_name" == ？* ]]; then
+      shift
+      _askshell_query "${command_name#？}" "$@"
+      return $?
+    fi
+    if (( ${_ASKSHELL_HAS_COMMAND_NOT_FOUND_HANDLER:-0} )); then
+      _askshell_previous_command_not_found_handler "$@"
+      return $?
+    fi
+    print -u2 "zsh: command not found: $command_name"
+    return 127
+  }
+
   if [[ -o interactive ]]; then
     function _askshell_insert_question_mark() {
       if [[ -z "${LBUFFER//[[:space:]]/}" ]]; then
