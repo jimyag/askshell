@@ -72,7 +72,9 @@ func (c *Client) call(ctx context.Context, request Request) (Response, error) {
 	if err != nil {
 		return Response{}, fmt.Errorf("connect to askshell session: %w", err)
 	}
-	defer conn.Close()
+	defer func() {
+		_ = conn.Close()
+	}()
 
 	if deadline, ok := ctx.Deadline(); ok {
 		if err := conn.SetDeadline(deadline); err != nil {
@@ -120,7 +122,9 @@ func (s *Server) Serve(ctx context.Context, ready chan<- error) error {
 		ready <- err
 		return fmt.Errorf("listen on control socket: %w", err)
 	}
-	defer listener.Close()
+	defer func() {
+		_ = listener.Close()
+	}()
 	if err := os.Chmod(s.socket, 0o600); err != nil {
 		ready <- err
 		return fmt.Errorf("protect control socket: %w", err)
@@ -145,7 +149,9 @@ func (s *Server) Serve(ctx context.Context, ready chan<- error) error {
 }
 
 func (s *Server) handle(conn net.Conn) {
-	defer conn.Close()
+	defer func() {
+		_ = conn.Close()
+	}()
 	var request Request
 	if err := json.NewDecoder(conn).Decode(&request); err != nil {
 		_ = json.NewEncoder(conn).Encode(Response{Error: fmt.Sprintf("decode request: %v", err)})
@@ -249,7 +255,7 @@ func (s *Server) finishCapture(exitCode int) error {
 	s.active = nil
 	s.pending = nil
 
-	output := ""
+	var output string
 	if current.interactive {
 		output = "[interactive output omitted]"
 	} else {

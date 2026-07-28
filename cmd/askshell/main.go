@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -56,16 +57,18 @@ func run(args []string) error {
 	}
 }
 
-func runSSH(args []string) error {
+func runSSH(args []string) (returnErr error) {
 	activeSession, err := supervisor.StartSession()
 	if err != nil {
 		return err
 	}
-	defer activeSession.Close()
+	defer func() {
+		returnErr = errors.Join(returnErr, activeSession.Close())
+	}()
 	return remote.RunSSH(args, activeSession)
 }
 
-func runShell(args []string) error {
+func runShell(args []string) (returnErr error) {
 	var backendArg string
 	if len(args) > 1 {
 		return fmt.Errorf("usage: askshell shell [zsh|bash]")
@@ -85,7 +88,9 @@ func runShell(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer activeSession.Close()
+	defer func() {
+		returnErr = errors.Join(returnErr, activeSession.Close())
+	}()
 	return activeSession.Run(command)
 }
 
@@ -223,7 +228,9 @@ func writeEventMarker(event string) error {
 	if err != nil {
 		return fmt.Errorf("open terminal for event marker: %w", err)
 	}
-	defer tty.Close()
+	defer func() {
+		_ = tty.Close()
+	}()
 	if _, err := tty.Write(control.Marker(os.Getenv("ASKSHELL_SESSION_ID"), event)); err != nil {
 		return fmt.Errorf("write terminal event marker: %w", err)
 	}

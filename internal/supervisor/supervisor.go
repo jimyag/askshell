@@ -59,6 +59,7 @@ func StartSession() (*Session, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create session runtime directory: %w", err)
 	}
+	//nolint:gosec // A private directory needs the owner execute bit for socket access.
 	if err := os.Chmod(dir, 0o700); err != nil {
 		_ = os.RemoveAll(dir)
 		return nil, fmt.Errorf("protect session runtime directory: %w", err)
@@ -115,7 +116,9 @@ func (s *Session) Run(command *exec.Cmd) error {
 	if err != nil {
 		return fmt.Errorf("start terminal: %w", err)
 	}
-	defer ptmx.Close()
+	defer func() {
+		_ = ptmx.Close()
+	}()
 
 	resize := make(chan os.Signal, 1)
 	signal.Notify(resize, syscall.SIGWINCH)
