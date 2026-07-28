@@ -169,7 +169,7 @@ AskShell 不替换 zsh/fish 的 Enter widget，也不重定向普通命令的 st
 
 未设置 `ASKSHELL_PROVIDER` 时，AskShell 按以下顺序选择：
 
-1. 存在 `QINIU_LITELLM_KEY` 或 `OPENAI_API_KEY`：使用 OpenAI Responses API。
+1. 存在 `OPENAI_API_KEY`：使用 OpenAI Responses API。
 2. 存在 `ANTHROPIC_API_KEY`：使用 Anthropic Messages API。
 3. 否则使用本地 OpenAI Chat-compatible API，默认连接 Ollama。
 
@@ -210,16 +210,6 @@ ASKSHELL_API_KEY=<provider API key override>
 ASKSHELL_MODEL=<model name>
 ASKSHELL_TIMEOUT=2m
 ```
-
-七牛 LiteLLM 可直接使用：
-
-```bash
-export QINIU_LITELLM_KEY=...
-export ASKSHELL_MODEL=gpt-5.6-luna
-```
-
-此时默认使用 OpenAI Responses API 和
-`https://llmapi.qiniu.com/v1`。
 
 ## SSH
 

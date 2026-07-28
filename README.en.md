@@ -180,7 +180,7 @@ normal command output is not yet included in context.
 
 When `ASKSHELL_PROVIDER` is unset, AskShell selects a provider in this order:
 
-1. Use the OpenAI Responses API when `QINIU_LITELLM_KEY` or `OPENAI_API_KEY` is present.
+1. Use the OpenAI Responses API when `OPENAI_API_KEY` is present.
 2. Use the Anthropic Messages API when `ANTHROPIC_API_KEY` is present.
 3. Otherwise use a local OpenAI Chat-compatible API, defaulting to Ollama.
 
@@ -221,16 +221,6 @@ ASKSHELL_API_KEY=<provider API key override>
 ASKSHELL_MODEL=<model name>
 ASKSHELL_TIMEOUT=2m
 ```
-
-For Qiniu LiteLLM:
-
-```bash
-export QINIU_LITELLM_KEY=...
-export ASKSHELL_MODEL=gpt-5.6-luna
-```
-
-This selects the OpenAI Responses API at
-`https://llmapi.qiniu.com/v1`.
 
 ## SSH
 

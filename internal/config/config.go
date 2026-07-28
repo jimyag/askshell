@@ -27,8 +27,6 @@ func Load() (Config, error) {
 	provider := Provider(strings.TrimSpace(os.Getenv("ASKSHELL_PROVIDER")))
 	if provider == "" {
 		switch {
-		case os.Getenv("QINIU_LITELLM_KEY") != "":
-			provider = ProviderOpenAIResponses
 		case os.Getenv("OPENAI_API_KEY") != "":
 			provider = ProviderOpenAIResponses
 		case os.Getenv("ANTHROPIC_API_KEY") != "":
@@ -62,16 +60,12 @@ func Load() (Config, error) {
 		cfg.APIKey = firstNonEmpty(
 			os.Getenv("ASKSHELL_API_KEY"),
 			os.Getenv("OPENAI_API_KEY"),
-			os.Getenv("QINIU_LITELLM_KEY"),
 		)
 		cfg.BaseURL = firstNonEmpty(os.Getenv("ASKSHELL_BASE_URL"), os.Getenv("OPENAI_BASE_URL"))
-		if cfg.BaseURL == "" && os.Getenv("QINIU_LITELLM_KEY") != "" {
-			cfg.BaseURL = "https://llmapi.qiniu.com/v1"
-		}
 		cfg.Model = modelOr("gpt-5.6-luna")
 		if cfg.APIKey == "" {
 			return Config{}, fmt.Errorf(
-				"OPENAI_API_KEY, QINIU_LITELLM_KEY, or ASKSHELL_API_KEY is required",
+				"OPENAI_API_KEY or ASKSHELL_API_KEY is required",
 			)
 		}
 	case ProviderOpenAIChat:
