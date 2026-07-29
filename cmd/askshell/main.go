@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -24,6 +25,10 @@ var version = "0.1.0-dev"
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
+		var exitError *exec.ExitError
+		if errors.As(err, &exitError) {
+			os.Exit(exitError.ExitCode())
+		}
 		fmt.Fprintln(os.Stderr, "askshell:", err)
 		os.Exit(1)
 	}

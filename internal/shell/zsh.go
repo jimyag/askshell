@@ -139,6 +139,19 @@ if [[ -z "${ASKSHELL_ZSH_INTEGRATION:-}" ]]; then
     bindkey -M emacs '？' _askshell_insert_question_mark
     bindkey -M viins '?' _askshell_insert_question_mark
     bindkey -M viins '？' _askshell_insert_question_mark
+
+    function _askshell_normalize_question_buffer() {
+      if [[ "$BUFFER" == \?[^[:space:]]* ]]; then
+        BUFFER="? ${BUFFER#\?}"
+        (( CURSOR > 0 )) && (( CURSOR++ ))
+      elif [[ "$BUFFER" == ？[^[:space:]]* ]]; then
+        BUFFER="？ ${BUFFER#？}"
+        (( CURSOR > 0 )) && (( CURSOR++ ))
+      fi
+    }
+
+    autoload -Uz add-zle-hook-widget
+    add-zle-hook-widget line-pre-redraw _askshell_normalize_question_buffer
   fi
 fi
 `

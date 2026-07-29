@@ -14,7 +14,16 @@ import (
 type Command struct {
 	Command     string `json:"command"`
 	Description string `json:"description"`
+	Risk        Risk   `json:"risk,omitempty"`
 }
+
+type Risk string
+
+const (
+	RiskNone        Risk = ""
+	RiskDestructive Risk = "destructive"
+	RiskPrivileged  Risk = "privileged"
+)
 
 type Answer struct {
 	ReasoningSummary string    `json:"reasoning_summary,omitempty"`
@@ -71,15 +80,35 @@ func (s *Service) Conversation() Conversation {
 }
 
 func (s *Service) Analyze(ctx context.Context, query, shell, cwd string) (Answer, error) {
+	return s.AnalyzeEnvironment(ctx, query, Environment{
+		OS:    runtime.GOOS,
+		Arch:  runtime.GOARCH,
+		Shell: shell,
+		CWD:   cwd,
+	})
+}
+
+type Environment struct {
+	OS    string
+	Arch  string
+	Shell string
+	CWD   string
+}
+
+func (s *Service) AnalyzeEnvironment(
+	ctx context.Context,
+	query string,
+	environment Environment,
+) (Answer, error) {
 	if err := s.compactConversation(ctx); err != nil {
 		return Answer{}, err
 	}
-	environment := fmt.Sprintf(
+	environmentText := fmt.Sprintf(
 		"OS: %s/%s\nShell: %s\nWorking directory: %s",
-		runtime.GOOS,
-		runtime.GOARCH,
-		shell,
-		cwd,
+		environment.OS,
+		environment.Arch,
+		environment.Shell,
+		environment.CWD,
 	)
 	generated, err := s.generator.Generate(ctx, provider.Request{
 		Instructions: `You are a concise terminal assistant.
@@ -90,7 +119,7 @@ Never claim a command was executed. Never place commentary inside a command.
 Prefer one simple command over a script.
 Every command will be reviewed by the user before execution.
 Return only the requested JSON.`,
-		Input:            buildInput(environment, s.conversation, query),
+		Input:            buildInput(environmentText, s.conversation, query),
 		Schema:           answerSchema(),
 		ReasoningSummary: true,
 	})
@@ -112,6 +141,7 @@ Return only the requested JSON.`,
 		candidate.Command = strings.TrimSpace(candidate.Command)
 		candidate.Description = strings.TrimSpace(candidate.Description)
 		if candidate.Command != "" {
+			candidate.Risk = ClassifyRisk(candidate.Command)
 			filtered = append(filtered, candidate)
 		}
 	}

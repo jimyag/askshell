@@ -90,7 +90,7 @@ func Prompt(
 				return Result{Action: ActionReject}, err
 			}
 		}
-		if risk := riskLabel(candidate.Command, text); risk != "" {
+		if risk := riskText(candidate.Risk, text); risk != "" {
 			if err := printfTo(out, "   "+text.risk, risk); err != nil {
 				return Result{Action: ActionReject}, err
 			}
@@ -233,17 +233,11 @@ func isReject(value string) bool {
 	}
 }
 
-func riskLabel(command string, text messages) string {
-	lower := strings.ToLower(command)
-	switch {
-	case strings.Contains(lower, "rm -rf"),
-		strings.Contains(lower, "mkfs"),
-		strings.Contains(lower, "diskutil erase"),
-		strings.Contains(lower, "> /dev/"):
+func riskText(risk assistant.Risk, text messages) string {
+	switch risk {
+	case assistant.RiskDestructive:
 		return text.riskDestructive
-	case strings.Contains(lower, "sudo "),
-		strings.Contains(lower, "shutdown"),
-		strings.Contains(lower, "reboot"):
+	case assistant.RiskPrivileged:
 		return text.riskPrivilegedAction
 	default:
 		return ""

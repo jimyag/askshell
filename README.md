@@ -239,7 +239,7 @@ StreamLocal 反向转发。嵌套进入另一层 SSH 或 tmux 后不会继续注
 ## 安全边界
 
 - AI 生成的命令永远不会静默执行。
-- 删除、覆盖、提权和重启类命令会显示额外风险提示。
+- AskShell 会为常见的删除、覆盖、提权和重启命令显示额外风险提示；该提示是辅助检查，不是 Shell 安全沙箱。
 - `?` 请求会把当前操作系统、Shell、工作目录和相关会话上下文发送给配置的模型服务。
 - `askshell ssh` 会把远端命令、目录和捕获到的非交互输出通过 SSH 加密通道发送到本机。
 - 不要在启用的 Shell 中打印不希望发送给模型服务的密钥或敏感数据。
@@ -256,9 +256,9 @@ task ci
 
 ## 发布
 
-推送 `v*` tag 后，Release workflow 会通过 GoReleaser 上传 Linux 和 macOS
-的 amd64/arm64 原始二进制及 `checksums.txt`。发布前可运行
-`task release-snapshot` 验证配置和本地产物。
+推送 `v*` tag 后，Release workflow 会先执行 lint、测试和构建，再通过
+GoReleaser 上传 Linux 和 macOS 的 amd64/arm64 原始二进制及
+`checksums.txt`。发布前也可运行 `task release-snapshot` 验证配置和本地产物。
 
 ## License
 

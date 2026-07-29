@@ -4,6 +4,7 @@ const helperScript = `#!/usr/bin/env python3
 import json
 import os
 import pathlib
+import platform
 import shlex
 import shutil
 import socket
@@ -57,6 +58,8 @@ def prompt(query):
             "query": query,
             "shell": os.environ.get("ASKSHELL_BACKEND", pathlib.Path(os.environ.get("SHELL", "zsh")).name),
             "cwd": os.getcwd(),
+            "os": platform.system().lower(),
+            "arch": platform.machine().lower(),
         }
     )
     answer = response["answer"]
@@ -76,6 +79,14 @@ def prompt(query):
         print(f"{index}. {candidate['command']}", file=tty_out)
         if candidate.get("description"):
             print(f"   {candidate['description']}", file=tty_out)
+        if candidate.get("risk"):
+            risks = {
+                "destructive": "可能删除或覆盖数据" if chinese else "may delete or overwrite data",
+                "privileged": "需要提权或影响系统状态" if chinese else "requires privileges or affects system state",
+            }
+            risk = risks.get(candidate["risk"])
+            if risk:
+                print(("   风险：" if chinese else "   Risk: ") + risk, file=tty_out)
     selected = commands[0]
     if len(commands) > 1:
         while True:
@@ -194,6 +205,19 @@ if [[ -z "${ASKSHELL_ZSH_INTEGRATION:-}" ]]; then
     bindkey -M emacs '？' _askshell_insert_question_mark
     bindkey -M viins '?' _askshell_insert_question_mark
     bindkey -M viins '？' _askshell_insert_question_mark
+
+    function _askshell_normalize_question_buffer() {
+      if [[ "$BUFFER" == \?[^[:space:]]* ]]; then
+        BUFFER="? ${BUFFER#\?}"
+        (( CURSOR > 0 )) && (( CURSOR++ ))
+      elif [[ "$BUFFER" == ？[^[:space:]]* ]]; then
+        BUFFER="？ ${BUFFER#？}"
+        (( CURSOR > 0 )) && (( CURSOR++ ))
+      fi
+    }
+
+    autoload -Uz add-zle-hook-widget
+    add-zle-hook-widget line-pre-redraw _askshell_normalize_question_buffer
   fi
 fi
 '''.replace("__BINARY__", binary)
@@ -313,12 +337,17 @@ def run_shell():
     env = os.environ.copy()
     env["ASKSHELL_CONTROL_SESSION_ID"] = env.get("ASKSHELL_SESSION_ID", "")
     if backend == "zsh":
-        original_zdotdir = env.get("ZDOTDIR") or env.get("HOME", "")
+        original_zdotdir = env.get("ZDOTDIR")
+        startup_dir = original_zdotdir or env.get("HOME", "")
         rc_dir = pathlib.Path(runtime_dir, "zdot")
         rc_dir.mkdir(mode=0o700, exist_ok=True)
-        original_rc = pathlib.Path(original_zdotdir, ".zshrc")
+        original_rc = pathlib.Path(startup_dir, ".zshrc")
         rc = pathlib.Path(rc_dir, ".zshrc")
-        parts = []
+        parts = [
+            "unset ZDOTDIR"
+            if original_zdotdir is None
+            else f"typeset -gx ZDOTDIR={shlex.quote(original_zdotdir)}"
+        ]
         if original_rc.is_file():
             parts.append(f"source {shlex.quote(str(original_rc))}")
         parts.append('typeset -gx ASKSHELL_SESSION_ID="$ASKSHELL_CONTROL_SESSION_ID"')
@@ -327,15 +356,20 @@ def run_shell():
         rc.write_text("\n".join(parts))
         env["ZDOTDIR"] = str(rc_dir)
     else:
-        original_config_home = env.get("XDG_CONFIG_HOME") or str(
+        original_config_home = env.get("XDG_CONFIG_HOME")
+        startup_config_home = original_config_home or str(
             pathlib.Path(env.get("HOME", ""), ".config")
         )
         config_home = pathlib.Path(runtime_dir, "config")
         fish_dir = pathlib.Path(config_home, "fish")
         fish_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-        original_config = pathlib.Path(original_config_home, "fish", "config.fish")
+        original_config = pathlib.Path(startup_config_home, "fish", "config.fish")
         config = pathlib.Path(fish_dir, "config.fish")
-        parts = []
+        parts = [
+            "set -e XDG_CONFIG_HOME"
+            if original_config_home is None
+            else f"set -gx XDG_CONFIG_HOME {fish_quote(original_config_home)}"
+        ]
         if original_config.is_file():
             parts.append(f"source {fish_quote(str(original_config))}")
         parts.append('set -gx ASKSHELL_SESSION_ID "$ASKSHELL_CONTROL_SESSION_ID"')

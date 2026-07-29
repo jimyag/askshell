@@ -252,7 +252,7 @@ nested SSH or tmux session.
 ## Security Boundaries
 
 - AI-generated commands are never executed silently.
-- Commands that delete or overwrite data, require privileges, or restart the system show an additional warning.
+- AskShell warns about common delete, overwrite, privilege, and restart command patterns. This is an advisory check, not a shell security sandbox.
 - A `?` request sends the operating system, shell, working directory, and relevant session context to the configured model service.
 - `askshell ssh` sends remote commands, directories, and captured non-interactive output to the local process through the encrypted SSH channel.
 - Do not print secrets or sensitive data in an enabled shell if they must not be sent to the model service.
@@ -269,9 +269,10 @@ detector, and `task build` writes the binary to `bin/askshell`.
 
 ## Release
 
-Pushing a `v*` tag runs GoReleaser and uploads raw amd64 and arm64 binaries for
-Linux and macOS together with `checksums.txt`. Run `task release-snapshot`
-before publishing to validate the configuration and local artifacts.
+Pushing a `v*` tag runs lint, tests, and a build before GoReleaser uploads raw
+amd64 and arm64 binaries for Linux and macOS together with `checksums.txt`.
+Run `task release-snapshot` before publishing to validate the configuration and
+local artifacts.
 
 ## License
 

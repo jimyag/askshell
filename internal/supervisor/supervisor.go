@@ -169,7 +169,7 @@ func (s *Session) Run(command *exec.Cmd) error {
 	if waitErr != nil {
 		var exitError *exec.ExitError
 		if errors.As(waitErr, &exitError) {
-			return nil
+			return exitError
 		}
 		return fmt.Errorf("wait for terminal command: %w", waitErr)
 	}

@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/jimyag/askshell/internal/assistant"
 )
 
 func TestReadChoiceStripsBracketedPaste(t *testing.T) {
@@ -70,6 +72,16 @@ func TestMessagesSupportChineseLocales(t *testing.T) {
 				t.Fatalf("selectAction = %q", got.selectAction)
 			}
 		})
+	}
+}
+
+func TestRiskTextUsesStructuredRiskLevel(t *testing.T) {
+	text := messagesFor("en")
+	if got := riskText(assistant.RiskDestructive, text); got != "may delete or overwrite data" {
+		t.Fatalf("destructive risk = %q", got)
+	}
+	if got := riskText(assistant.RiskPrivileged, text); got != "requires privileges or affects system state" {
+		t.Fatalf("privileged risk = %q", got)
 	}
 }
 

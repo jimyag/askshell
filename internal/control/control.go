@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 
@@ -23,6 +24,8 @@ type Request struct {
 	Query    string `json:"query,omitempty"`
 	Shell    string `json:"shell,omitempty"`
 	CWD      string `json:"cwd,omitempty"`
+	OS       string `json:"os,omitempty"`
+	Arch     string `json:"arch,omitempty"`
 	Command  string `json:"command,omitempty"`
 	ExitCode int    `json:"exit_code,omitempty"`
 }
@@ -75,6 +78,10 @@ func (c *Client) call(ctx context.Context, request Request) (Response, error) {
 	defer func() {
 		_ = conn.Close()
 	}()
+	stopCancel := context.AfterFunc(ctx, func() {
+		_ = conn.Close()
+	})
+	defer stopCancel()
 
 	if deadline, ok := ctx.Deadline(); ok {
 		if err := conn.SetDeadline(deadline); err != nil {
@@ -96,14 +103,21 @@ func (c *Client) call(ctx context.Context, request Request) (Response, error) {
 
 type Server struct {
 	socket  string
-	service *assistant.Service
+	service assistantService
 	store   *session.Store
 
-	mu      sync.Mutex
-	active  *capture
-	start   string
-	finish  *int
-	pending []byte
+	mu        sync.Mutex
+	analyzeMu sync.Mutex
+	active    *capture
+	start     string
+	finish    *int
+	pending   []byte
+}
+
+type assistantService interface {
+	AnalyzeEnvironment(context.Context, string, assistant.Environment) (assistant.Answer, error)
+	Conversation() assistant.Conversation
+	SetConversation(assistant.Conversation)
 }
 
 type capture struct {
@@ -112,7 +126,7 @@ type capture struct {
 	interactive bool
 }
 
-func NewServer(socket string, service *assistant.Service, store *session.Store) *Server {
+func NewServer(socket string, service assistantService, store *session.Store) *Server {
 	return &Server{socket: socket, service: service, store: store}
 }
 
@@ -144,11 +158,11 @@ func (s *Server) Serve(ctx context.Context, ready chan<- error) error {
 			}
 			return fmt.Errorf("accept control connection: %w", acceptErr)
 		}
-		go s.handle(conn)
+		go s.handle(ctx, conn)
 	}
 }
 
-func (s *Server) handle(conn net.Conn) {
+func (s *Server) handle(ctx context.Context, conn net.Conn) {
 	defer func() {
 		_ = conn.Close()
 	}()
@@ -157,21 +171,39 @@ func (s *Server) handle(conn net.Conn) {
 		_ = json.NewEncoder(conn).Encode(Response{Error: fmt.Sprintf("decode request: %v", err)})
 		return
 	}
-	response := s.dispatch(request)
+	requestCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go func() {
+		var buffer [1]byte
+		_, _ = conn.Read(buffer[:])
+		cancel()
+	}()
+	response := s.dispatch(requestCtx, request)
 	_ = json.NewEncoder(conn).Encode(response)
 }
 
-func (s *Server) dispatch(request Request) Response {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
+func (s *Server) dispatch(ctx context.Context, request Request) Response {
 	switch request.Type {
 	case "analyze":
-		answer, err := s.service.Analyze(
-			context.Background(),
+		s.analyzeMu.Lock()
+		defer s.analyzeMu.Unlock()
+		operatingSystem := request.OS
+		if operatingSystem == "" {
+			operatingSystem = runtime.GOOS
+		}
+		architecture := request.Arch
+		if architecture == "" {
+			architecture = runtime.GOARCH
+		}
+		answer, err := s.service.AnalyzeEnvironment(
+			ctx,
 			request.Query,
-			request.Shell,
-			request.CWD,
+			assistant.Environment{
+				OS:    operatingSystem,
+				Arch:  architecture,
+				Shell: request.Shell,
+				CWD:   request.CWD,
+			},
 		)
 		if err != nil {
 			return Response{Error: err.Error()}
@@ -181,15 +213,21 @@ func (s *Server) dispatch(request Request) Response {
 		}
 		return Response{Answer: &answer}
 	case "start":
+		s.mu.Lock()
+		defer s.mu.Unlock()
 		s.start = request.Command
 		return Response{}
 	case "cancel":
+		s.mu.Lock()
+		defer s.mu.Unlock()
 		s.active = nil
 		s.start = ""
 		s.finish = nil
 		s.pending = nil
 		return Response{}
 	case "finish":
+		s.mu.Lock()
+		defer s.mu.Unlock()
 		s.finish = &request.ExitCode
 		return Response{}
 	default:
@@ -211,13 +249,23 @@ func (s *Server) StartMarker() {
 
 func (s *Server) FinishMarker() error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.finish == nil {
+		s.mu.Unlock()
 		return nil
 	}
 	exitCode := *s.finish
 	s.finish = nil
-	return s.finishCapture(exitCode)
+	current := s.active
+	s.active = nil
+	s.pending = nil
+	s.mu.Unlock()
+
+	if current == nil {
+		return nil
+	}
+	s.analyzeMu.Lock()
+	defer s.analyzeMu.Unlock()
+	return s.finishCapture(current, exitCode)
 }
 
 func (s *Server) CaptureOutput(data []byte) {
@@ -247,14 +295,7 @@ func (s *Server) ObserveInput() {
 	}
 }
 
-func (s *Server) finishCapture(exitCode int) error {
-	if s.active == nil {
-		return nil
-	}
-	current := s.active
-	s.active = nil
-	s.pending = nil
-
+func (s *Server) finishCapture(current *capture, exitCode int) error {
 	var output string
 	if current.interactive {
 		output = "[interactive output omitted]"
