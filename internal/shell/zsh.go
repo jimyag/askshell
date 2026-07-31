@@ -109,12 +109,13 @@ if [[ -z "${ASKSHELL_ZSH_INTEGRATION:-}" ]]; then
     if [[ -n "${_ASKSHELL_NATIVE_COMMAND+x}" ]]; then
       local command="$_ASKSHELL_NATIVE_COMMAND"
       unset _ASKSHELL_NATIVE_COMMAND
+      local recorded=0
       if [[ -n "${ASKSHELL_SOCKET:-}" ]]; then
-        "$_ASKSHELL_BIN" event finish --exit-code "$exit_code" >/dev/null 2>&1
+        "$_ASKSHELL_BIN" event finish --exit-code "$exit_code" >/dev/null 2>&1 || recorded=$?
       else
         "$_ASKSHELL_BIN" record --exit-code "$exit_code" -- "$command"
       fi
-      if (( exit_code != 0 )) && [[ -n "${ASKSHELL_SOCKET:-}" ]]; then
+      if (( exit_code != 0 && recorded == 0 )) && [[ -n "${ASKSHELL_SOCKET:-}" ]]; then
         _askshell_fix_failed
       fi
     fi

@@ -55,6 +55,9 @@ func ConfirmFailure(tty *os.File, language string) (bool, error) {
 			if choice, ok := failureChoice(input, diagnoseEnd, ignoreStart); ok {
 				return choice, nil
 			}
+			if terminalSequenceComplete(input) {
+				input = input[:0]
+			}
 			if len(input) > 64 {
 				input = input[len(input)-64:]
 			}
@@ -89,38 +92,61 @@ func failureChoice(input []byte, diagnoseEnd, ignoreStart int) (bool, bool) {
 	if len(input) == 0 {
 		return false, false
 	}
+
+	value := string(input)
+	start := strings.LastIndex(value, "\x1b[<")
+	if start >= 0 {
+		end := strings.IndexAny(value[start:], "Mm")
+		if end < 0 {
+			return false, false
+		}
+		parts := strings.Split(value[start+3:start+end], ";")
+		if len(parts) != 3 || parts[0] != "0" || value[start+end] != 'M' {
+			return false, false
+		}
+		column, err := strconv.Atoi(parts[1])
+		if err != nil {
+			return false, false
+		}
+		switch {
+		case column >= 1 && column <= diagnoseEnd:
+			return true, true
+		case column >= ignoreStart:
+			return false, true
+		default:
+			return false, false
+		}
+	}
+	if strings.ContainsRune(value, '\x1b') {
+		return false, false
+	}
 	switch input[len(input)-1] {
 	case '\r', '\n', 'd', 'D', 'y', 'Y':
 		return true, true
 	case 'n', 'N', 3:
 		return false, true
-	}
-
-	value := string(input)
-	start := strings.LastIndex(value, "\x1b[<")
-	if start < 0 {
-		return false, false
-	}
-	end := strings.IndexAny(value[start:], "Mm")
-	if end < 0 {
-		return false, false
-	}
-	parts := strings.Split(value[start+3:start+end], ";")
-	if len(parts) != 3 || parts[0] != "0" || value[start+end] != 'M' {
-		return false, true
-	}
-	column, err := strconv.Atoi(parts[1])
-	if err != nil {
-		return false, true
-	}
-	switch {
-	case column >= 1 && column <= diagnoseEnd:
-		return true, true
-	case column >= ignoreStart:
-		return false, true
 	default:
 		return false, false
 	}
+}
+
+func terminalSequenceComplete(input []byte) bool {
+	start := strings.LastIndexByte(string(input), '\x1b')
+	if start < 0 || start == len(input)-1 {
+		return false
+	}
+	sequence := input[start:]
+	if sequence[1] != '[' {
+		return true
+	}
+	if len(sequence) < 3 {
+		return false
+	}
+	if sequence[2] == '<' {
+		return sequence[len(sequence)-1] == 'M' || sequence[len(sequence)-1] == 'm'
+	}
+	last := sequence[len(sequence)-1]
+	return last >= 0x40 && last <= 0x7e
 }
 
 func displayWidth(value string) int {

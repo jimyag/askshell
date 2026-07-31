@@ -34,8 +34,9 @@ func TestHelperPreservesRemoteEnvironmentAndRiskMetadata(t *testing.T) {
 		`set -gx XDG_CONFIG_HOME`,
 		`candidate.get("risk")`,
 		`_askshell_normalize_question_buffer`,
-		`rpc({"type": "sync"})`,
+		`rpc({"type": "sync"}, timeout=5)`,
 		`def confirm_failure():`,
+		`sequence = buffer[start:]`,
 		`"$_ASKSHELL_BIN" fix --result-dir "$result_dir"`,
 	} {
 		if !strings.Contains(helperScript, expected) {

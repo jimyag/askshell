@@ -37,9 +37,14 @@ func TestFailureChoiceSupportsMouse(t *testing.T) {
 	}
 }
 
-func TestFailureChoiceIgnoresMouseRelease(t *testing.T) {
-	if _, complete := failureChoice([]byte("\x1b[<0;8;12m"), 20, 24); !complete {
-		t.Fatal("mouse release should be consumed")
+func TestFailureChoiceIgnoresTerminalSequences(t *testing.T) {
+	for _, input := range []string{"\x1b[D", "\x1bd", "\x1b[<0;8;12m"} {
+		if _, complete := failureChoice([]byte(input), 20, 24); complete {
+			t.Fatalf("failureChoice(%q) completed unexpectedly", input)
+		}
+		if !terminalSequenceComplete([]byte(input)) {
+			t.Fatalf("terminalSequenceComplete(%q) = false, want true", input)
+		}
 	}
 }
 

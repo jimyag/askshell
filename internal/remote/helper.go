@@ -16,11 +16,13 @@ import tty
 import unicodedata
 
 
-def rpc(request):
+def rpc(request, timeout=None):
     path = os.environ.get("ASKSHELL_SOCKET", "")
     if not path:
         raise RuntimeError("ASKSHELL_SOCKET is not set")
     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    if timeout is not None:
+        client.settimeout(timeout)
     client.connect(path)
     with client:
         stream = client.makefile("rwb")
@@ -76,23 +78,33 @@ def confirm_failure():
             terminal.write(b"\x1b[?1000h\x1b[?1006h")
             while True:
                 buffer = (buffer + os.read(fd, 1))[-64:]
+                start = buffer.rfind(b"\x1b")
+                if start >= 0:
+                    sequence = buffer[start:]
+                    if sequence.startswith(b"\x1b[<"):
+                        if sequence[-1:] not in (b"M", b"m"):
+                            continue
+                        try:
+                            button, column, _ = sequence[3:-1].decode().split(";")
+                            column = int(column)
+                        except (ValueError, UnicodeDecodeError):
+                            buffer = b""
+                            continue
+                        if sequence[-1:] == b"M" and button == "0":
+                            if 1 <= column <= diagnose_end:
+                                return True
+                            if column >= ignore_start:
+                                return False
+                        buffer = b""
+                        continue
+                    if len(sequence) == 1 or (sequence.startswith(b"\x1b[") and len(sequence) < 3):
+                        continue
+                    if not sequence.startswith(b"\x1b[") or 0x40 <= sequence[-1] <= 0x7E:
+                        buffer = b""
+                    continue
                 if buffer[-1:] in (b"\r", b"\n", b"d", b"D", b"y", b"Y"):
                     return True
                 if buffer[-1:] in (b"n", b"N", b"\x03"):
-                    return False
-                start = buffer.rfind(b"\x1b[<")
-                if start < 0 or buffer[-1:] not in (b"M", b"m"):
-                    continue
-                try:
-                    button, column, _ = buffer[start + 3 : -1].decode().split(";")
-                    column = int(column)
-                except (ValueError, UnicodeDecodeError):
-                    continue
-                if buffer[-1:] == b"m" or button != "0":
-                    continue
-                if 1 <= column <= diagnose_end:
-                    return True
-                if column >= ignore_start:
                     return False
         finally:
             terminal.write(b"\x1b[?1000l\x1b[?1006l\r\n")
@@ -222,8 +234,9 @@ if [[ -z "${ASKSHELL_ZSH_INTEGRATION:-}" ]]; then
     local exit_code=$?
     if [[ -n "${_ASKSHELL_NATIVE_COMMAND+x}" ]]; then
       unset _ASKSHELL_NATIVE_COMMAND
-      "$_ASKSHELL_BIN" event finish --exit-code "$exit_code" >/dev/null 2>&1
-      if (( exit_code != 0 )) && [[ -n "${ASKSHELL_SOCKET:-}" ]]; then
+      local recorded=0
+      "$_ASKSHELL_BIN" event finish --exit-code "$exit_code" >/dev/null 2>&1 || recorded=$?
+      if (( exit_code != 0 && recorded == 0 )) && [[ -n "${ASKSHELL_SOCKET:-}" ]]; then
         _askshell_fix_failed
       fi
     fi
@@ -369,8 +382,9 @@ if not set -q ASKSHELL_FISH_INTEGRATION
         set -l exit_code $status
         if set -q _ASKSHELL_NATIVE_COMMAND
             set -e _ASKSHELL_NATIVE_COMMAND
-            "$_ASKSHELL_BIN" event finish --exit-code "$exit_code" >/dev/null 2>&1
-            if test $exit_code -ne 0; and test -n "$ASKSHELL_SOCKET"
+            set -l recorded 0
+            "$_ASKSHELL_BIN" event finish --exit-code "$exit_code" >/dev/null 2>&1; or set recorded $status
+            if test $exit_code -ne 0; and test $recorded -eq 0; and test -n "$ASKSHELL_SOCKET"
                 _askshell_fix_failed
             end
         end
@@ -501,7 +515,7 @@ def main():
         if kind in ("start", "finish"):
             marker(kind)
         if kind == "finish":
-            rpc({"type": "sync"})
+            rpc({"type": "sync"}, timeout=5)
         return 0
     if command == "ask":
         result_dir = sys.argv[sys.argv.index("--result-dir") + 1]

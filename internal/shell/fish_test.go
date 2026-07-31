@@ -24,7 +24,7 @@ func TestFishIntegrationIncludesFullModeHooks(t *testing.T) {
 		"commandline -r --",
 		"function fish_command_not_found",
 		`"$_ASKSHELL_BIN" fix --result-dir "$result_dir"`,
-		`if test $exit_code -ne 0; and test -n "$ASKSHELL_SOCKET"`,
+		`if test $exit_code -ne 0; and test $recorded -eq 0; and test -n "$ASKSHELL_SOCKET"`,
 	} {
 		if !strings.Contains(integration, expected) {
 			t.Fatalf("FishIntegration() does not contain %q", expected)

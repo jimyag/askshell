@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/jimyag/askshell/internal/assistant"
 	"github.com/jimyag/askshell/internal/config"
@@ -22,6 +23,8 @@ import (
 )
 
 var version = "0.1.0-dev"
+
+const eventSyncTimeout = 5 * time.Second
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
@@ -256,7 +259,9 @@ func runEvent(args []string) error {
 		if err := writeEventMarker("finish"); err != nil {
 			return err
 		}
-		return client.Event(context.Background(), control.Request{Type: "sync"})
+		ctx, cancel := context.WithTimeout(context.Background(), eventSyncTimeout)
+		defer cancel()
+		return client.Event(ctx, control.Request{Type: "sync"})
 	default:
 		return fmt.Errorf("unknown event %q", args[0])
 	}

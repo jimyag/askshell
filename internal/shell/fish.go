@@ -120,12 +120,13 @@ if not set -q ASKSHELL_FISH_INTEGRATION
         if set -q _ASKSHELL_NATIVE_COMMAND
             set -l native_command "$_ASKSHELL_NATIVE_COMMAND"
             set -e _ASKSHELL_NATIVE_COMMAND
+            set -l recorded 0
             if test -n "$ASKSHELL_SOCKET"
-                "$_ASKSHELL_BIN" event finish --exit-code "$exit_code" >/dev/null 2>&1
+                "$_ASKSHELL_BIN" event finish --exit-code "$exit_code" >/dev/null 2>&1; or set recorded $status
             else
                 "$_ASKSHELL_BIN" record --exit-code "$exit_code" -- "$native_command"
             end
-            if test $exit_code -ne 0; and test -n "$ASKSHELL_SOCKET"
+            if test $exit_code -ne 0; and test $recorded -eq 0; and test -n "$ASKSHELL_SOCKET"
                 _askshell_fix_failed
             end
         end
