@@ -117,6 +117,19 @@ commands, select one and decide whether to place it into the terminal:
 - `y` / `yes` / `是` / `确认` / `放行`: place it in the input line for review or editing.
 - `n` / `no` / `否` / `拒绝`: reject it.
 
+In `askshell shell zsh`, `askshell shell fish`, and full AskShell SSH sessions,
+a non-zero exit status displays a diagnosis action:
+
+```text
+AskShell: The previous command failed.
+[D] Diagnose and fix    [N] Ignore
+```
+
+Click an action, press `d`/Enter to diagnose, or press `n`/Ctrl-C to ignore it.
+The model is called only after an explicit diagnosis choice. A corrected command
+is still placed in the current input line and is never executed automatically.
+Lightweight integration and bash do not enable this failure action.
+
 ### fish example
 
 Add the integration to `config.fish` as described above, then start full mode:

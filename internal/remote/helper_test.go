@@ -34,6 +34,9 @@ func TestHelperPreservesRemoteEnvironmentAndRiskMetadata(t *testing.T) {
 		`set -gx XDG_CONFIG_HOME`,
 		`candidate.get("risk")`,
 		`_askshell_normalize_question_buffer`,
+		`rpc({"type": "sync"})`,
+		`def confirm_failure():`,
+		`"$_ASKSHELL_BIN" fix --result-dir "$result_dir"`,
 	} {
 		if !strings.Contains(helperScript, expected) {
 			t.Fatalf("remote helper does not contain %q", expected)

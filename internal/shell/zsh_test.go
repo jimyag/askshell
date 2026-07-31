@@ -13,6 +13,8 @@ func TestZshIntegrationNormalizesLeadingQuestionMarkPastes(t *testing.T) {
 		`BUFFER="? ${BUFFER#\?}"`,
 		"autoload -Uz add-zle-hook-widget",
 		"add-zle-hook-widget line-pre-redraw _askshell_normalize_question_buffer",
+		`"$_ASKSHELL_BIN" fix --result-dir "$result_dir"`,
+		`if (( exit_code != 0 )) && [[ -n "${ASKSHELL_SOCKET:-}" ]]; then`,
 	} {
 		if !strings.Contains(integration, expected) {
 			t.Fatalf("ZshIntegration() does not contain %q", expected)

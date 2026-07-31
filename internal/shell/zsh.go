@@ -74,6 +74,29 @@ if [[ -z "${ASKSHELL_ZSH_INTEGRATION:-}" ]]; then
     esac
   }
 
+  function _askshell_fix_failed() {
+    local result_dir
+    result_dir="$(command mktemp -d "${TMPDIR:-/tmp}/askshell.XXXXXXXX")" || {
+      _askshell_error result-dir
+      return 1
+    }
+
+    "$_ASKSHELL_BIN" fix --result-dir "$result_dir"
+    local fix_status=$?
+    local action="reject"
+    local suggested=""
+    [[ -r "$result_dir/action" ]] && action="$(<"$result_dir/action")"
+    [[ -r "$result_dir/command" ]] && suggested="$(<"$result_dir/command")"
+    command rm -rf -- "$result_dir"
+
+    if (( fix_status == 0 )) &&
+      [[ "$action" == "execute" || "$action" == "edit" ]] &&
+      [[ -n "$suggested" ]]; then
+      print -z -- "$suggested"
+    fi
+    return "$fix_status"
+  }
+
   function _askshell_record_preexec() {
     typeset -g _ASKSHELL_NATIVE_COMMAND="$1"
     if [[ -n "${ASKSHELL_SOCKET:-}" ]]; then
@@ -90,6 +113,9 @@ if [[ -z "${ASKSHELL_ZSH_INTEGRATION:-}" ]]; then
         "$_ASKSHELL_BIN" event finish --exit-code "$exit_code" >/dev/null 2>&1
       else
         "$_ASKSHELL_BIN" record --exit-code "$exit_code" -- "$command"
+      fi
+      if (( exit_code != 0 )) && [[ -n "${ASKSHELL_SOCKET:-}" ]]; then
+        _askshell_fix_failed
       fi
     fi
     return "$exit_code"

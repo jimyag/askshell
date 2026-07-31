@@ -106,12 +106,13 @@ type Server struct {
 	service assistantService
 	store   *session.Store
 
-	mu        sync.Mutex
-	analyzeMu sync.Mutex
-	active    *capture
-	start     string
-	finish    *int
-	pending   []byte
+	mu         sync.Mutex
+	analyzeMu  sync.Mutex
+	active     *capture
+	start      string
+	finish     *int
+	finishDone chan struct{}
+	pending    []byte
 }
 
 type assistantService interface {
@@ -223,13 +224,29 @@ func (s *Server) dispatch(ctx context.Context, request Request) Response {
 		s.active = nil
 		s.start = ""
 		s.finish = nil
+		s.closeFinishLocked()
 		s.pending = nil
 		return Response{}
 	case "finish":
 		s.mu.Lock()
 		defer s.mu.Unlock()
+		s.closeFinishLocked()
 		s.finish = &request.ExitCode
+		s.finishDone = make(chan struct{})
 		return Response{}
+	case "sync":
+		s.mu.Lock()
+		done := s.finishDone
+		s.mu.Unlock()
+		if done == nil {
+			return Response{}
+		}
+		select {
+		case <-done:
+			return Response{}
+		case <-ctx.Done():
+			return Response{Error: ctx.Err().Error()}
+		}
 	default:
 		return Response{Error: fmt.Sprintf("unknown control request %q", request.Type)}
 	}
@@ -258,7 +275,12 @@ func (s *Server) FinishMarker() error {
 	current := s.active
 	s.active = nil
 	s.pending = nil
+	done := s.finishDone
+	s.finishDone = nil
 	s.mu.Unlock()
+	if done != nil {
+		defer close(done)
+	}
 
 	if current == nil {
 		return nil
@@ -266,6 +288,13 @@ func (s *Server) FinishMarker() error {
 	s.analyzeMu.Lock()
 	defer s.analyzeMu.Unlock()
 	return s.finishCapture(current, exitCode)
+}
+
+func (s *Server) closeFinishLocked() {
+	if s.finishDone != nil {
+		close(s.finishDone)
+		s.finishDone = nil
+	}
 }
 
 func (s *Server) CaptureOutput(data []byte) {

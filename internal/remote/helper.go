@@ -11,6 +11,9 @@ import socket
 import subprocess
 import sys
 import tempfile
+import termios
+import tty
+import unicodedata
 
 
 def rpc(request):
@@ -49,6 +52,51 @@ def clean_choice(value):
         .strip()
         .lower()
     )
+
+
+def display_width(value):
+    return sum(2 if unicodedata.east_asian_width(char) in ("W", "F") else 1 for char in value)
+
+
+def confirm_failure():
+    chinese = os.environ.get("ASKSHELL_LANG", "").lower().startswith("zh")
+    diagnose = "诊断并修复" if chinese else "Diagnose and fix"
+    ignore = "忽略" if chinese else "Ignore"
+    message = "上一条命令执行失败。" if chinese else "The previous command failed."
+    line = f"[D] {diagnose}    [N] {ignore}"
+    diagnose_end = display_width(f"[D] {diagnose}") + 1
+    ignore_start = diagnose_end + 3
+    with open("/dev/tty", "r+b", buffering=0) as terminal:
+        terminal.write(f"\nAskShell: {message}\n{line}".encode())
+        fd = terminal.fileno()
+        state = termios.tcgetattr(fd)
+        buffer = b""
+        try:
+            tty.setraw(fd)
+            terminal.write(b"\x1b[?1000h\x1b[?1006h")
+            while True:
+                buffer = (buffer + os.read(fd, 1))[-64:]
+                if buffer[-1:] in (b"\r", b"\n", b"d", b"D", b"y", b"Y"):
+                    return True
+                if buffer[-1:] in (b"n", b"N", b"\x03"):
+                    return False
+                start = buffer.rfind(b"\x1b[<")
+                if start < 0 or buffer[-1:] not in (b"M", b"m"):
+                    continue
+                try:
+                    button, column, _ = buffer[start + 3 : -1].decode().split(";")
+                    column = int(column)
+                except (ValueError, UnicodeDecodeError):
+                    continue
+                if buffer[-1:] == b"m" or button != "0":
+                    continue
+                if 1 <= column <= diagnose_end:
+                    return True
+                if column >= ignore_start:
+                    return False
+        finally:
+            terminal.write(b"\x1b[?1000l\x1b[?1006l\r\n")
+            termios.tcsetattr(fd, termios.TCSADRAIN, state)
 
 
 def prompt(query):
@@ -149,6 +197,22 @@ if [[ -z "${ASKSHELL_ZSH_INTEGRATION:-}" ]]; then
     return "$ask_status"
   }
 
+  function _askshell_fix_failed() {
+    local result_dir
+    result_dir="$(command mktemp -d "${TMPDIR:-/tmp}/askshell.XXXXXXXX")" || return 1
+    "$_ASKSHELL_BIN" fix --result-dir "$result_dir"
+    local fix_status=$?
+    local action="reject"
+    local suggested=""
+    [[ -r "$result_dir/action" ]] && action="$(<"$result_dir/action")"
+    [[ -r "$result_dir/command" ]] && suggested="$(<"$result_dir/command")"
+    command rm -rf -- "$result_dir"
+    if (( fix_status == 0 )) && [[ "$action" == "execute" || "$action" == "edit" ]] && [[ -n "$suggested" ]]; then
+      print -z -- "$suggested"
+    fi
+    return "$fix_status"
+  }
+
   function _askshell_record_preexec() {
     typeset -g _ASKSHELL_NATIVE_COMMAND="$1"
     "$_ASKSHELL_BIN" event start -- "$1" >/dev/null 2>&1
@@ -159,6 +223,9 @@ if [[ -z "${ASKSHELL_ZSH_INTEGRATION:-}" ]]; then
     if [[ -n "${_ASKSHELL_NATIVE_COMMAND+x}" ]]; then
       unset _ASKSHELL_NATIVE_COMMAND
       "$_ASKSHELL_BIN" event finish --exit-code "$exit_code" >/dev/null 2>&1
+      if (( exit_code != 0 )) && [[ -n "${ASKSHELL_SOCKET:-}" ]]; then
+        _askshell_fix_failed
+      fi
     fi
     return "$exit_code"
   }
@@ -265,6 +332,34 @@ if not set -q ASKSHELL_FISH_INTEGRATION
         return $ask_status
     end
 
+    function _askshell_fix_failed
+        set -l temp_root /tmp
+        if test -n "$TMPDIR"
+            set temp_root "$TMPDIR"
+        end
+        set -l result_dir (command mktemp -d "$temp_root/askshell.XXXXXXXX")
+        if test $status -ne 0 -o -z "$result_dir"
+            return 1
+        end
+        "$_ASKSHELL_BIN" fix --result-dir "$result_dir"
+        set -l fix_status $status
+        set -l action reject
+        set -l suggested
+        if test -r "$result_dir/action"
+            set action (string trim -- (command cat "$result_dir/action"))
+        end
+        if test -r "$result_dir/command"
+            set suggested (string collect <"$result_dir/command")
+        end
+        command rm -rf -- "$result_dir"
+        if test $fix_status -eq 0
+            if contains -- "$action" execute edit
+                test -n "$suggested"; and commandline -r -- "$suggested"
+            end
+        end
+        return $fix_status
+    end
+
     function _askshell_record_preexec --on-event fish_preexec
         set -g _ASKSHELL_NATIVE_COMMAND "$argv[1]"
         "$_ASKSHELL_BIN" event start -- "$argv[1]" >/dev/null 2>&1
@@ -275,6 +370,9 @@ if not set -q ASKSHELL_FISH_INTEGRATION
         if set -q _ASKSHELL_NATIVE_COMMAND
             set -e _ASKSHELL_NATIVE_COMMAND
             "$_ASKSHELL_BIN" event finish --exit-code "$exit_code" >/dev/null 2>&1
+            if test $exit_code -ne 0; and test -n "$ASKSHELL_SOCKET"
+                _askshell_fix_failed
+            end
         end
         return $exit_code
     end
@@ -402,6 +500,8 @@ def main():
         rpc(request)
         if kind in ("start", "finish"):
             marker(kind)
+        if kind == "finish":
+            rpc({"type": "sync"})
         return 0
     if command == "ask":
         result_dir = sys.argv[sys.argv.index("--result-dir") + 1]
@@ -414,6 +514,22 @@ def main():
             file=open("/dev/tty", "w"),
         )
         action, suggested = prompt(query)
+        write_result(result_dir, action, suggested)
+        return 0
+    if command == "fix":
+        result_dir = sys.argv[sys.argv.index("--result-dir") + 1]
+        write_result(result_dir, "reject")
+        if not confirm_failure():
+            return 0
+        print(
+            "AskShell 正在思考…" if os.environ.get("ASKSHELL_LANG", "").lower().startswith("zh")
+            else "AskShell is thinking…",
+            file=open("/dev/tty", "w"),
+        )
+        action, suggested = prompt(
+            "Diagnose the most recent failed command. Identify the exact erroneous fragment "
+            "when possible, briefly explain the cause, and suggest the corrected command."
+        )
         write_result(result_dir, action, suggested)
         return 0
     raise RuntimeError(f"unknown remote helper command {command!r}")

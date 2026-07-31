@@ -75,6 +75,39 @@ if not set -q ASKSHELL_FISH_INTEGRATION
         return $ask_status
     end
 
+    function _askshell_fix_failed
+        set -l temp_root /tmp
+        if test -n "$TMPDIR"
+            set temp_root "$TMPDIR"
+        end
+        set -l result_dir (command mktemp -d "$temp_root/askshell.XXXXXXXX")
+        if test $status -ne 0 -o -z "$result_dir"
+            _askshell_error result-dir
+            return 1
+        end
+
+        "$_ASKSHELL_BIN" fix --result-dir "$result_dir"
+        set -l fix_status $status
+        set -l action reject
+        set -l suggested
+        if test -r "$result_dir/action"
+            set action (string trim -- (command cat "$result_dir/action"))
+        end
+        if test -r "$result_dir/command"
+            set suggested (string collect <"$result_dir/command")
+        end
+        command rm -rf -- "$result_dir"
+
+        if test $fix_status -eq 0
+            if contains -- "$action" execute edit
+                if test -n "$suggested"
+                    commandline -r -- "$suggested"
+                end
+            end
+        end
+        return $fix_status
+    end
+
     function _askshell_record_preexec --on-event fish_preexec
         set -g _ASKSHELL_NATIVE_COMMAND "$argv[1]"
         if test -n "$ASKSHELL_SOCKET"
@@ -91,6 +124,9 @@ if not set -q ASKSHELL_FISH_INTEGRATION
                 "$_ASKSHELL_BIN" event finish --exit-code "$exit_code" >/dev/null 2>&1
             else
                 "$_ASKSHELL_BIN" record --exit-code "$exit_code" -- "$native_command"
+            end
+            if test $exit_code -ne 0; and test -n "$ASKSHELL_SOCKET"
+                _askshell_fix_failed
             end
         end
         return $exit_code

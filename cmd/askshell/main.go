@@ -44,6 +44,8 @@ func run(args []string) error {
 		return runShell(args[1:])
 	case "ask":
 		return runAsk(args[1:])
+	case "fix":
+		return runFix(args[1:])
 	case "record":
 		return runRecord(args[1:])
 	case "event":
@@ -109,9 +111,30 @@ func runAsk(args []string) error {
 	if *resultDir == "" {
 		return fmt.Errorf("ask is an internal command; start 'askshell shell' and use '? question'")
 	}
+	return runPrompt(*resultDir, strings.Join(flags.Args(), " "), false)
+}
 
+func runFix(args []string) error {
+	flags := flag.NewFlagSet("fix", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	resultDir := flags.String("result-dir", "", "directory used to return the selected action")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if *resultDir == "" || len(flags.Args()) != 0 {
+		return fmt.Errorf("fix is an internal command")
+	}
+	return runPrompt(
+		*resultDir,
+		"Diagnose the most recent failed command. Identify the exact erroneous fragment "+
+			"when possible, briefly explain the cause, and suggest the corrected command.",
+		true,
+	)
+}
+
+func runPrompt(resultDir, query string, confirmFailure bool) error {
 	result := ui.Result{Action: ui.ActionReject}
-	if err := ui.WriteResult(*resultDir, result); err != nil {
+	if err := ui.WriteResult(resultDir, result); err != nil {
 		return err
 	}
 
@@ -127,12 +150,20 @@ func runAsk(args []string) error {
 		_, _ = fmt.Fprint(tty, "\x1b[?2004h")
 		_ = tty.Close()
 	}()
+	if confirmFailure {
+		confirmed, confirmErr := ui.ConfirmFailure(tty, os.Getenv("ASKSHELL_LANG"))
+		if confirmErr != nil {
+			return fmt.Errorf("read failure action: %w", confirmErr)
+		}
+		if !confirmed {
+			return nil
+		}
+	}
 
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("get working directory: %w", err)
 	}
-	query := strings.Join(flags.Args(), " ")
 	var service ui.Analyzer
 	var store *session.Store
 	if socket := os.Getenv("ASKSHELL_SOCKET"); socket != "" {
@@ -178,7 +209,7 @@ func runAsk(args []string) error {
 			return err
 		}
 	}
-	return ui.WriteResult(*resultDir, result)
+	return ui.WriteResult(resultDir, result)
 }
 
 func runEvent(args []string) error {
@@ -222,7 +253,10 @@ func runEvent(args []string) error {
 		}); err != nil {
 			return err
 		}
-		return writeEventMarker("finish")
+		if err := writeEventMarker("finish"); err != nil {
+			return err
+		}
+		return client.Event(context.Background(), control.Request{Type: "sync"})
 	default:
 		return fmt.Errorf("unknown event %q", args[0])
 	}

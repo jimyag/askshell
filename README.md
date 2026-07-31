@@ -112,6 +112,18 @@ zsh 和 fish 同时支持 `?问题` 和 `? 问题`；AskShell 只在行首问号
 - `y` / `yes` / `是` / `确认` / `放行`：放入终端输入行，可继续修改。
 - `n` / `no` / `否` / `拒绝`：拒绝。
 
+在 `askshell shell zsh`、`askshell shell fish` 或 AskShell SSH 完整模式中，
+上一条命令返回非零退出码时会显示诊断入口：
+
+```text
+AskShell: 上一条命令执行失败。
+[D] 诊断并修复    [N] 忽略
+```
+
+可以直接点击，也可以按 `d`/Enter 诊断，或按 `n`/Ctrl-C 忽略。只有明确选择
+诊断后才会请求模型。模型建议的修复命令仍只会放入当前输入行，不会自动执行。
+轻量 integration 和 bash 不启用这个失败诊断入口。
+
 ### fish 使用示例
 
 先按安装说明将 integration 加入 `config.fish`，然后启动完整模式：

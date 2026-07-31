@@ -51,6 +51,33 @@ func TestMarkerIncludesSessionAndEvent(t *testing.T) {
 	}
 }
 
+func TestSyncWaitsForFinishMarker(t *testing.T) {
+	server := NewServer("", nil, nil)
+	server.dispatch(context.Background(), Request{Type: "finish", ExitCode: 1})
+
+	synced := make(chan Response, 1)
+	go func() {
+		synced <- server.dispatch(context.Background(), Request{Type: "sync"})
+	}()
+	select {
+	case <-synced:
+		t.Fatal("sync returned before the finish marker")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	if err := server.FinishMarker(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case response := <-synced:
+		if response.Error != "" {
+			t.Fatalf("sync error = %q", response.Error)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("sync did not return after the finish marker")
+	}
+}
+
 func TestHandleCancelsAnalyzeWhenClientDisconnects(t *testing.T) {
 	service := &blockingService{
 		started:  make(chan assistant.Environment, 1),
