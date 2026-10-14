@@ -46,3 +46,12 @@ func (g *captureGenerator) Generate(_ context.Context, request provider.Request)
 	g.request = request
 	return g.result, nil
 }
+
+func (g *captureGenerator) GenerateStream(
+	_ context.Context,
+	request provider.Request,
+	_ provider.Emit,
+) (provider.Result, error) {
+	g.request = request
+	return g.result, nil
+}

@@ -19,8 +19,13 @@ type Result struct {
 	ReasoningSummary string
 }
 
+// Emit receives incremental text while a response streams. It is invoked
+// synchronously; returning an error aborts the generation.
+type Emit func(text string) error
+
 type Generator interface {
 	Generate(context.Context, Request) (Result, error)
+	GenerateStream(context.Context, Request, Emit) (Result, error)
 }
 
 func New(cfg config.Config) (Generator, error) {

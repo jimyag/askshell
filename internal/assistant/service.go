@@ -100,6 +100,28 @@ func (s *Service) AnalyzeEnvironment(
 	query string,
 	environment Environment,
 ) (Answer, error) {
+	return s.AnalyzeEnvironmentStream(ctx, query, environment, nil)
+}
+
+func (s *Service) AnalyzeStream(
+	ctx context.Context,
+	query, shell, cwd string,
+	emit func(text string) error,
+) (Answer, error) {
+	return s.AnalyzeEnvironmentStream(ctx, query, Environment{
+		OS:    runtime.GOOS,
+		Arch:  runtime.GOARCH,
+		Shell: shell,
+		CWD:   cwd,
+	}, emit)
+}
+
+func (s *Service) AnalyzeEnvironmentStream(
+	ctx context.Context,
+	query string,
+	environment Environment,
+	emit func(text string) error,
+) (Answer, error) {
 	if err := s.compactConversation(ctx); err != nil {
 		return Answer{}, err
 	}
@@ -110,7 +132,7 @@ func (s *Service) AnalyzeEnvironment(
 		environment.Shell,
 		environment.CWD,
 	)
-	generated, err := s.generator.Generate(ctx, provider.Request{
+	generated, err := s.generator.GenerateStream(ctx, provider.Request{
 		Instructions: `You are a concise terminal assistant.
 Answer the request using the supplied environment context.
 Provide a short reasoning_summary in the user's language. It should state the relevant evidence and why the answer or command follows, without exposing hidden chain-of-thought or exhaustive internal reasoning.
@@ -122,7 +144,7 @@ Return only the requested JSON.`,
 		Input:            buildInput(environmentText, s.conversation, query),
 		Schema:           answerSchema(),
 		ReasoningSummary: true,
-	})
+	}, provider.Emit(emit))
 	if err != nil {
 		return Answer{}, err
 	}

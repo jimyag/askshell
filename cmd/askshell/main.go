@@ -114,7 +114,13 @@ func runAsk(args []string) error {
 	if *resultDir == "" {
 		return fmt.Errorf("ask is an internal command; start 'askshell shell' and use '? question'")
 	}
-	return runPrompt(*resultDir, strings.Join(flags.Args(), " "), false)
+	query := strings.Join(flags.Args(), " ")
+	if strings.TrimSpace(query) == "" {
+		query = "Look at the recent commands in this terminal session. " +
+			"If any of them failed or produced an obvious error, briefly explain why and suggest the corrected command. " +
+			"Otherwise summarize what the recent commands accomplished and suggest one or two concrete next steps the user likely wants."
+	}
+	return runPrompt(*resultDir, query, false)
 }
 
 func runFix(args []string) error {

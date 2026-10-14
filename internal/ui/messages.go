@@ -8,8 +8,9 @@ type messages struct {
 	reasoningSummary     string
 	risk                 string
 	selectCommand        string
+	selectSingle         string
 	invalidSelection     string
-	selectAction         string
+	timeout              string
 	riskDestructive      string
 	riskPrivilegedAction string
 }
@@ -22,9 +23,10 @@ func messagesFor(language string) messages {
 			thinking:             "AskShell 正在思考…",
 			reasoningSummary:     "分析摘要：",
 			risk:                 "风险：%s\n",
-			selectCommand:        "选择命令 [1-%d]，或输入 n/否：",
+			selectCommand:        "选择 [1-%d]（回车 = 1，e数字 = 编辑，n = 拒绝）：",
+			selectSingle:         "回车放入终端，e 编辑，n 拒绝：",
 			invalidSelection:     "无效选择。",
-			selectAction:         "操作：[y/是] 放入终端  [n/否] 拒绝：",
+			timeout:              "（长时间未输入，默认拒绝）",
 			riskDestructive:      "可能删除或覆盖数据",
 			riskPrivilegedAction: "需要提权或影响系统状态",
 		}
@@ -34,9 +36,10 @@ func messagesFor(language string) messages {
 		thinking:             "AskShell is thinking…",
 		reasoningSummary:     "Reasoning summary:",
 		risk:                 "Risk: %s\n",
-		selectCommand:        "Select command [1-%d], or n/no to reject: ",
+		selectCommand:        "Choose [1-%d] (Enter = 1, eN = edit, n = reject): ",
+		selectSingle:         "Enter to accept, e to edit, n to reject: ",
 		invalidSelection:     "Invalid selection.",
-		selectAction:         "Action: [y/yes] put in terminal  [n/no] reject: ",
+		timeout:              "(no input; rejecting)",
 		riskDestructive:      "may delete or overwrite data",
 		riskPrivilegedAction: "requires privileges or affects system state",
 	}

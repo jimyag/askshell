@@ -9,12 +9,17 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jimyag/askshell/internal/assistant"
 )
 
 type Analyzer interface {
-	Analyze(ctx context.Context, query, shell, cwd string) (assistant.Answer, error)
+	AnalyzeStream(
+		ctx context.Context,
+		query, shell, cwd string,
+		emit func(text string) error,
+	) (assistant.Answer, error)
 }
 
 type Action string
@@ -30,6 +35,12 @@ type Result struct {
 	Command string
 }
 
+// Prompt runs the question/candidate flow on the terminal. Shell
+// integration points in/out at /dev/tty so the interactive read lives on
+// the same descriptor the user is typing on. ASKSHELL_PICK pre-selects a
+// command for automation; ASKSHELL_CONFIRM_TIMEOUT (Go duration string,
+// independent of ASKSHELL_TIMEOUT which governs the LLM call) bounds the
+// wait on each user decision and falls back to a reject on expiry.
 func Prompt(
 	ctx context.Context,
 	service Analyzer,
@@ -41,6 +52,11 @@ func Prompt(
 ) (Result, error) {
 	reader := bufio.NewReader(in)
 	text := messagesFor(os.Getenv("ASKSHELL_LANG"))
+	timeout, err := pickConfirmTimeout(os.Getenv("ASKSHELL_CONFIRM_TIMEOUT"))
+	if err != nil {
+		return Result{Action: ActionReject}, fmt.Errorf("parse ASKSHELL_TIMEOUT: %w", err)
+	}
+
 	query = strings.TrimSpace(query)
 	if query == "" {
 		if err := printTo(out, text.you); err != nil {
@@ -59,7 +75,9 @@ func Prompt(
 	if err := printlnTo(out, text.thinking); err != nil {
 		return Result{Action: ActionReject}, err
 	}
-	answer, err := service.Analyze(ctx, query, shell, cwd)
+	answer, err := service.AnalyzeStream(ctx, query, shell, cwd, func(chunk string) error {
+		return printTo(out, chunk)
+	})
 	if err != nil {
 		return Result{Action: ActionReject}, err
 	}
@@ -77,7 +95,6 @@ func Prompt(
 	if len(answer.Commands) == 0 {
 		return Result{Action: ActionReject}, nil
 	}
-
 	if err := printlnTo(out); err != nil {
 		return Result{Action: ActionReject}, err
 	}
@@ -97,22 +114,11 @@ func Prompt(
 		}
 	}
 
-	selected, rejected, err := selectCommand(reader, out, answer.Commands, text)
+	selected, action, err := pickCommand(reader, in, out, answer.Commands, text, timeout)
 	if err != nil {
 		return Result{Action: ActionReject}, err
 	}
-	if rejected {
-		return Result{Action: ActionReject}, nil
-	}
-
-	action, err := selectAction(reader, out, text)
-	if err != nil {
-		return Result{Action: ActionReject}, err
-	}
-	return Result{
-		Action:  action,
-		Command: selected.Command,
-	}, nil
+	return Result{Action: action, Command: selected.Command}, nil
 }
 
 func WriteResult(dir string, result Result) error {
@@ -135,56 +141,148 @@ func WriteResult(dir string, result Result) error {
 	return nil
 }
 
-func selectCommand(
+// pickCommand resolves the user's choice. Presets from ASKSHELL_PICK skip
+// the prompt entirely; single low-risk candidates use a short prompt (Enter
+// accepts, "e" edits); everything else falls into the numbered picker.
+func pickCommand(
 	reader *bufio.Reader,
+	in io.Reader,
 	out io.Writer,
 	commands []assistant.Command,
 	text messages,
-) (assistant.Command, bool, error) {
-	if len(commands) == 1 {
-		return commands[0], false, nil
+	timeout time.Duration,
+) (assistant.Command, Action, error) {
+	if index, mode, ok := pickFromEnv(os.Getenv("ASKSHELL_PICK"), len(commands)); ok {
+		if mode < 0 {
+			return assistant.Command{}, ActionReject, nil
+		}
+		if mode > 0 {
+			return commands[index], ActionEdit, nil
+		}
+		return commands[index], ActionExecute, nil
 	}
+	if len(commands) == 1 && commands[0].Risk == assistant.RiskNone {
+		return askSingle(reader, in, out, commands[0], text, timeout)
+	}
+	return askChoice(reader, in, out, commands, text, timeout)
+}
 
+func askSingle(
+	reader *bufio.Reader,
+	in io.Reader,
+	out io.Writer,
+	candidate assistant.Command,
+	text messages,
+	timeout time.Duration,
+) (assistant.Command, Action, error) {
+	if err := printTo(out, text.selectSingle); err != nil {
+		return assistant.Command{}, ActionReject, err
+	}
+	value, err := readChoiceTimeout(reader, in, out, text, timeout)
+	if err != nil {
+		return assistant.Command{}, ActionReject, err
+	}
+	switch value {
+	case "", "y", "yes", "是", "确认", "放行":
+		return candidate, ActionExecute, nil
+	case "e", "edit", "编辑":
+		return candidate, ActionEdit, nil
+	default:
+		return assistant.Command{}, ActionReject, nil
+	}
+}
+
+func askChoice(
+	reader *bufio.Reader,
+	in io.Reader,
+	out io.Writer,
+	commands []assistant.Command,
+	text messages,
+	timeout time.Duration,
+) (assistant.Command, Action, error) {
 	for {
 		if err := printfTo(out, text.selectCommand, len(commands)); err != nil {
-			return assistant.Command{}, false, err
+			return assistant.Command{}, ActionReject, err
 		}
-		value, err := readChoice(reader)
+		value, err := readChoiceTimeout(reader, in, out, text, timeout)
 		if err != nil {
-			return assistant.Command{}, false, err
+			return assistant.Command{}, ActionReject, err
+		}
+		if value == "" {
+			value = "1"
+		}
+		mode := ActionExecute
+		switch {
+		case strings.HasPrefix(value, "e"), strings.HasPrefix(value, "edit"):
+			mode = ActionEdit
+			value = strings.TrimPrefix(value, "e")
+			value = strings.TrimPrefix(value, "edit")
+		case strings.HasPrefix(value, "编辑"):
+			mode = ActionEdit
+			value = strings.TrimPrefix(value, "编辑")
 		}
 		if isReject(value) {
-			return assistant.Command{}, true, nil
+			return assistant.Command{}, ActionReject, nil
 		}
-		index, err := strconv.Atoi(value)
-		if err == nil && index >= 1 && index <= len(commands) {
-			return commands[index-1], false, nil
+		index, parseErr := strconv.Atoi(value)
+		if parseErr == nil && index >= 1 && index <= len(commands) {
+			return commands[index-1], mode, nil
 		}
 		if err := printlnTo(out, text.invalidSelection); err != nil {
-			return assistant.Command{}, false, err
+			return assistant.Command{}, ActionReject, err
 		}
 	}
 }
 
-func selectAction(reader *bufio.Reader, out io.Writer, text messages) (Action, error) {
-	for {
-		if err := printTo(out, text.selectAction); err != nil {
-			return ActionReject, err
+// readChoiceTimeout reads one line. When in is an *os.File and timeout is
+// positive, an empty result means the user did not respond in time; treat
+// that as a reject and surface it in-band so the shell prompt stays in sync.
+func readChoiceTimeout(
+	reader *bufio.Reader,
+	in io.Reader,
+	out io.Writer,
+	text messages,
+	timeout time.Duration,
+) (string, error) {
+	file, ok := in.(*os.File)
+	if !ok || timeout <= 0 {
+		return readChoice(reader)
+	}
+	line, err := readStringTimeout(reader, file, timeout)
+	if err != nil {
+		return "", err
+	}
+	if line == "" {
+		if err := printlnTo(out, text.timeout); err != nil {
+			return "", err
 		}
-		value, err := readChoice(reader)
-		if err != nil {
-			return ActionReject, err
-		}
-		switch value {
-		case "y", "yes", "是", "确认", "放行":
-			return ActionExecute, nil
-		case "n", "no", "否", "拒绝":
-			return ActionReject, nil
-		default:
-			if err := printlnTo(out, text.invalidSelection); err != nil {
-				return ActionReject, err
-			}
-		}
+		return "n", nil
+	}
+	return normalizeChoice(line), nil
+}
+
+func normalizeChoice(line string) string {
+	line = strings.ReplaceAll(line, "\x1b[200~", "")
+	line = strings.ReplaceAll(line, "\x1b[201~", "")
+	line = strings.ReplaceAll(line, "^[[200~", "")
+	line = strings.ReplaceAll(line, "^[[201~", "")
+	return strings.ToLower(strings.TrimSpace(line))
+}
+
+func readChoice(reader *bufio.Reader) (string, error) {
+	line, err := reader.ReadString('\n')
+	if err != nil && len(line) == 0 {
+		return "", err
+	}
+	return normalizeChoice(line), nil
+}
+
+func isReject(value string) bool {
+	switch value {
+	case "n", "no", "否", "拒绝":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -210,27 +308,6 @@ func linesTo(out io.Writer, lines ...string) error {
 func printfTo(out io.Writer, format string, values ...any) error {
 	_, err := fmt.Fprintf(out, format, values...)
 	return err
-}
-
-func readChoice(reader *bufio.Reader) (string, error) {
-	line, err := reader.ReadString('\n')
-	if err != nil && len(line) == 0 {
-		return "", err
-	}
-	line = strings.ReplaceAll(line, "\x1b[200~", "")
-	line = strings.ReplaceAll(line, "\x1b[201~", "")
-	line = strings.ReplaceAll(line, "^[[200~", "")
-	line = strings.ReplaceAll(line, "^[[201~", "")
-	return strings.ToLower(strings.TrimSpace(line)), nil
-}
-
-func isReject(value string) bool {
-	switch value {
-	case "n", "no", "否", "拒绝":
-		return true
-	default:
-		return false
-	}
 }
 
 func riskText(risk assistant.Risk, text messages) string {

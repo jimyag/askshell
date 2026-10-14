@@ -50,6 +50,14 @@ func newOpenAIClient(cfg config.Config) openai.Client {
 }
 
 func (p *openAIResponses) Generate(ctx context.Context, request Request) (Result, error) {
+	return p.GenerateStream(ctx, request, nil)
+}
+
+func (p *openAIResponses) GenerateStream(
+	ctx context.Context,
+	request Request,
+	emit Emit,
+) (Result, error) {
 	requestCtx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
 
@@ -79,25 +87,46 @@ func (p *openAIResponses) Generate(ctx context.Context, request Request) (Result
 		}
 	}
 
-	response, err := p.client.Responses.New(requestCtx, params)
-	if err != nil {
+	stream := p.client.Responses.NewStreaming(requestCtx, params)
+	defer func() {
+		_ = stream.Close()
+	}()
+	var result Result
+	for stream.Next() {
+		switch event := stream.Current(); event.Type {
+		case "response.output_text.delta":
+			result.Text += event.Delta
+			if err := emitText(emit, event.Delta); err != nil {
+				return Result{}, err
+			}
+		case "response.reasoning_summary_text.delta":
+			result.ReasoningSummary += event.Delta
+		}
+	}
+	if err := stream.Err(); err != nil {
 		return Result{}, fmt.Errorf("OpenAI Responses API: %w", err)
 	}
-	output := strings.TrimSpace(response.OutputText())
-	if output == "" {
+	result.Text = strings.TrimSpace(result.Text)
+	if result.Text == "" {
 		return Result{}, fmt.Errorf("OpenAI Responses API returned no text")
 	}
-	return Result{
-		Text:             output,
-		ReasoningSummary: responseReasoningSummary(response.Output),
-	}, nil
+	result.ReasoningSummary = strings.TrimSpace(result.ReasoningSummary)
+	return result, nil
 }
 
 func (p *openAIChat) Generate(ctx context.Context, request Request) (Result, error) {
+	return p.GenerateStream(ctx, request, nil)
+}
+
+func (p *openAIChat) GenerateStream(
+	ctx context.Context,
+	request Request,
+	emit Emit,
+) (Result, error) {
 	requestCtx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
 
-	response, err := p.client.Chat.Completions.New(requestCtx, openai.ChatCompletionNewParams{
+	stream := p.client.Chat.Completions.NewStreaming(requestCtx, openai.ChatCompletionNewParams{
 		Model: p.model,
 		Messages: []openai.ChatCompletionMessageParamUnion{
 			openai.SystemMessage(request.Instructions),
@@ -113,36 +142,34 @@ func (p *openAIChat) Generate(ctx context.Context, request Request) (Result, err
 			},
 		},
 	})
-	if err != nil {
-		return Result{}, fmt.Errorf("OpenAI Chat Completions API: %w", err)
-	}
-	if len(response.Choices) == 0 {
-		return Result{}, fmt.Errorf("OpenAI Chat Completions API returned no choices")
-	}
-	output := strings.TrimSpace(response.Choices[0].Message.Content)
-	if output == "" {
-		return Result{}, fmt.Errorf("OpenAI Chat Completions API returned no text")
-	}
-	return Result{Text: output}, nil
-}
-
-func responseReasoningSummary(items []responses.ResponseOutputItemUnion) string {
-	var summary strings.Builder
-	for _, item := range items {
-		if item.Type != "reasoning" {
+	defer func() {
+		_ = stream.Close()
+	}()
+	var output strings.Builder
+	for stream.Next() {
+		delta := stream.Current().Choices
+		if len(delta) == 0 || delta[0].Delta.Content == "" {
 			continue
 		}
-		reasoning := item.AsReasoning()
-		for _, part := range reasoning.Summary {
-			text := strings.TrimSpace(part.Text)
-			if text == "" {
-				continue
-			}
-			if summary.Len() > 0 {
-				summary.WriteString("\n")
-			}
-			summary.WriteString(text)
+		chunk := delta[0].Delta.Content
+		output.WriteString(chunk)
+		if err := emitText(emit, chunk); err != nil {
+			return Result{}, err
 		}
 	}
-	return summary.String()
+	if err := stream.Err(); err != nil {
+		return Result{}, fmt.Errorf("OpenAI Chat Completions API: %w", err)
+	}
+	text := strings.TrimSpace(output.String())
+	if text == "" {
+		return Result{}, fmt.Errorf("OpenAI Chat Completions API returned no text")
+	}
+	return Result{Text: text}, nil
+}
+
+func emitText(emit Emit, text string) error {
+	if emit == nil {
+		return nil
+	}
+	return emit(text)
 }

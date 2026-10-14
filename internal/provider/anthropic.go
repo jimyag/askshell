@@ -30,10 +30,18 @@ func newAnthropic(cfg config.Config) *anthropicProvider {
 }
 
 func (p *anthropicProvider) Generate(ctx context.Context, request Request) (Result, error) {
+	return p.GenerateStream(ctx, request, nil)
+}
+
+func (p *anthropicProvider) GenerateStream(
+	ctx context.Context,
+	request Request,
+	emit Emit,
+) (Result, error) {
 	requestCtx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
 
-	message, err := p.client.Messages.New(requestCtx, anthropic.MessageNewParams{
+	stream := p.client.Messages.NewStreaming(requestCtx, anthropic.MessageNewParams{
 		Model:     p.model,
 		MaxTokens: 4096,
 		System: []anthropic.TextBlockParam{
@@ -48,19 +56,28 @@ func (p *anthropicProvider) Generate(ctx context.Context, request Request) (Resu
 			},
 		},
 	})
-	if err != nil {
-		return Result{}, fmt.Errorf("anthropic Messages API: %w", err)
-	}
-
+	defer func() {
+		_ = stream.Close()
+	}()
 	var output strings.Builder
-	for _, block := range message.Content {
-		text := block.AsText().Text
-		if text != "" {
-			output.WriteString(text)
+	for stream.Next() {
+		event := stream.Current()
+		if event.Type != "content_block_delta" ||
+			event.Delta.Type != "text_delta" ||
+			event.Delta.Text == "" {
+			continue
+		}
+		output.WriteString(event.Delta.Text)
+		if err := emitText(emit, event.Delta.Text); err != nil {
+			return Result{}, err
 		}
 	}
-	if strings.TrimSpace(output.String()) == "" {
+	if err := stream.Err(); err != nil {
+		return Result{}, fmt.Errorf("anthropic Messages API: %w", err)
+	}
+	text := strings.TrimSpace(output.String())
+	if text == "" {
 		return Result{}, fmt.Errorf("anthropic Messages API returned no text")
 	}
-	return Result{Text: strings.TrimSpace(output.String())}, nil
+	return Result{Text: text}, nil
 }

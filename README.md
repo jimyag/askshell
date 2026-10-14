@@ -174,8 +174,9 @@ AskShell 不替换 zsh/fish 的 Enter widget，也不重定向普通命令的 st
 后续键盘输入或 alternate screen 时，输出会标记为交互式并舍弃。
 
 仅加载 shell integration 的轻量模式仍记录 zsh/fish 命令和退出码，但无法
-捕获任意 stdout/stderr。bash 不安装 Enter binding 或 DEBUG trap；AI 建议
-命令会加入历史记录，可按上方向键取出并编辑，普通命令输出暂不进入上下文。
+捕获任意 stdout/stderr。bash 通过 DEBUG trap 与 PROMPT_COMMAND 提供同等的
+命令记录与失败诊断；AI 建议的命令会加入历史记录，按 `Ctrl-G` 放入当前
+输入行（也可按上方向键取出）。普通命令输出暂不进入上下文。
 
 ## 模型配置
 
@@ -221,6 +222,8 @@ ASKSHELL_BASE_URL=<custom API base URL>
 ASKSHELL_API_KEY=<provider API key override>
 ASKSHELL_MODEL=<model name>
 ASKSHELL_TIMEOUT=2m
+ASKSHELL_CONFIRM_TIMEOUT=0s    # 0 = 永不超时；如 30s 则空闲自动拒绝
+ASKSHELL_PICK=1                # 非交互式预选：纯数字 / yN / eN / xN
 ```
 
 ## SSH

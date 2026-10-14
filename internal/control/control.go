@@ -28,9 +28,13 @@ type Request struct {
 	Arch     string `json:"arch,omitempty"`
 	Command  string `json:"command,omitempty"`
 	ExitCode int    `json:"exit_code,omitempty"`
+	// Stream asks the server to relay incremental model output as
+	// {"chunk": ...} frames before the final Response frame.
+	Stream bool `json:"stream,omitempty"`
 }
 
 type Response struct {
+	Chunk  string            `json:"chunk,omitempty"`
 	Answer *assistant.Answer `json:"answer,omitempty"`
 	Error  string            `json:"error,omitempty"`
 }
@@ -49,12 +53,23 @@ func (c *Client) Analyze(
 	activeShell string,
 	cwd string,
 ) (assistant.Answer, error) {
+	return c.AnalyzeStream(ctx, query, activeShell, cwd, nil)
+}
+
+func (c *Client) AnalyzeStream(
+	ctx context.Context,
+	query string,
+	activeShell string,
+	cwd string,
+	emit func(text string) error,
+) (assistant.Answer, error) {
 	response, err := c.call(ctx, Request{
-		Type:  "analyze",
-		Query: query,
-		Shell: activeShell,
-		CWD:   cwd,
-	})
+		Type:   "analyze",
+		Query:  query,
+		Shell:  activeShell,
+		CWD:    cwd,
+		Stream: emit != nil,
+	}, emit)
 	if err != nil {
 		return assistant.Answer{}, err
 	}
@@ -65,11 +80,15 @@ func (c *Client) Analyze(
 }
 
 func (c *Client) Event(ctx context.Context, request Request) error {
-	_, err := c.call(ctx, request)
+	_, err := c.call(ctx, request, nil)
 	return err
 }
 
-func (c *Client) call(ctx context.Context, request Request) (Response, error) {
+func (c *Client) call(
+	ctx context.Context,
+	request Request,
+	emit func(text string) error,
+) (Response, error) {
 	dialer := net.Dialer{}
 	conn, err := dialer.DialContext(ctx, "unix", c.socket)
 	if err != nil {
@@ -91,14 +110,25 @@ func (c *Client) call(ctx context.Context, request Request) (Response, error) {
 	if err := json.NewEncoder(conn).Encode(request); err != nil {
 		return Response{}, fmt.Errorf("send control request: %w", err)
 	}
-	var response Response
-	if err := json.NewDecoder(conn).Decode(&response); err != nil {
-		return Response{}, fmt.Errorf("read control response: %w", err)
+	decoder := json.NewDecoder(conn)
+	for {
+		var response Response
+		if err := decoder.Decode(&response); err != nil {
+			return Response{}, fmt.Errorf("read control response: %w", err)
+		}
+		if response.Error != "" {
+			return Response{}, fmt.Errorf("%s", response.Error)
+		}
+		if response.Chunk != "" {
+			if emit != nil {
+				if err := emit(response.Chunk); err != nil {
+					return Response{}, err
+				}
+			}
+			continue
+		}
+		return response, nil
 	}
-	if response.Error != "" {
-		return Response{}, fmt.Errorf("%s", response.Error)
-	}
-	return response, nil
 }
 
 type Server struct {
@@ -116,7 +146,12 @@ type Server struct {
 }
 
 type assistantService interface {
-	AnalyzeEnvironment(context.Context, string, assistant.Environment) (assistant.Answer, error)
+	AnalyzeEnvironmentStream(
+		context.Context,
+		string,
+		assistant.Environment,
+		func(text string) error,
+	) (assistant.Answer, error)
 	Conversation() assistant.Conversation
 	SetConversation(assistant.Conversation)
 }
@@ -179,11 +214,18 @@ func (s *Server) handle(ctx context.Context, conn net.Conn) {
 		_, _ = conn.Read(buffer[:])
 		cancel()
 	}()
-	response := s.dispatch(requestCtx, request)
+	var emit func(text string) error
+	if request.Stream {
+		encoder := json.NewEncoder(conn)
+		emit = func(text string) error {
+			return encoder.Encode(Response{Chunk: text})
+		}
+	}
+	response := s.dispatch(requestCtx, request, emit)
 	_ = json.NewEncoder(conn).Encode(response)
 }
 
-func (s *Server) dispatch(ctx context.Context, request Request) Response {
+func (s *Server) dispatch(ctx context.Context, request Request, emit func(text string) error) Response {
 	switch request.Type {
 	case "analyze":
 		s.analyzeMu.Lock()
@@ -196,7 +238,7 @@ func (s *Server) dispatch(ctx context.Context, request Request) Response {
 		if architecture == "" {
 			architecture = runtime.GOARCH
 		}
-		answer, err := s.service.AnalyzeEnvironment(
+		answer, err := s.service.AnalyzeEnvironmentStream(
 			ctx,
 			request.Query,
 			assistant.Environment{
@@ -205,6 +247,7 @@ func (s *Server) dispatch(ctx context.Context, request Request) Response {
 				Shell: request.Shell,
 				CWD:   request.CWD,
 			},
+			emit,
 		)
 		if err != nil {
 			return Response{Error: err.Error()}

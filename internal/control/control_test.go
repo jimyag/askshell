@@ -53,11 +53,11 @@ func TestMarkerIncludesSessionAndEvent(t *testing.T) {
 
 func TestSyncWaitsForFinishMarker(t *testing.T) {
 	server := NewServer("", nil, nil)
-	server.dispatch(context.Background(), Request{Type: "finish", ExitCode: 1})
+	server.dispatch(context.Background(), Request{Type: "finish", ExitCode: 1}, nil)
 
 	synced := make(chan Response, 1)
 	go func() {
-		synced <- server.dispatch(context.Background(), Request{Type: "sync"})
+		synced <- server.dispatch(context.Background(), Request{Type: "sync"}, nil)
 	}()
 	select {
 	case <-synced:
@@ -133,14 +133,14 @@ func TestControlEventsAreNotBlockedByAnalyze(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	analyzeDone := make(chan struct{})
 	go func() {
-		server.dispatch(ctx, Request{Type: "analyze"})
+		server.dispatch(ctx, Request{Type: "analyze"}, nil)
 		close(analyzeDone)
 	}()
 	<-service.started
 
 	eventDone := make(chan struct{})
 	go func() {
-		server.dispatch(context.Background(), Request{Type: "start", Command: "ls"})
+		server.dispatch(context.Background(), Request{Type: "start", Command: "ls"}, nil)
 		close(eventDone)
 	}()
 	select {
@@ -189,7 +189,7 @@ func TestClientCancellationClosesPendingCall(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	callDone := make(chan error, 1)
 	go func() {
-		_, callErr := NewClient(socket).call(ctx, Request{Type: "analyze"})
+		_, callErr := NewClient(socket).call(ctx, Request{Type: "analyze"}, nil)
 		callDone <- callErr
 	}()
 	<-accepted
@@ -211,10 +211,11 @@ type blockingService struct {
 	conversation assistant.Conversation
 }
 
-func (s *blockingService) AnalyzeEnvironment(
+func (s *blockingService) AnalyzeEnvironmentStream(
 	ctx context.Context,
 	_ string,
 	environment assistant.Environment,
+	_ func(text string) error,
 ) (assistant.Answer, error) {
 	s.started <- environment
 	<-ctx.Done()

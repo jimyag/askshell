@@ -185,9 +185,12 @@ to 1 MiB and model context to 64 KiB. Output is discarded when further keyboard
 input or an alternate screen is detected.
 
 Lightweight shell integration records zsh/fish commands and exit codes but
-cannot capture arbitrary stdout/stderr. In bash, AskShell installs neither
-an Enter binding nor a DEBUG trap. Suggested commands are added to history;
-normal command output is not yet included in context.
+cannot capture arbitrary stdout/stderr. In bash AskShell hooks the DEBUG
+trap and PROMPT_COMMAND to record commands, exit codes, and failure
+diagnosis. Suggested commands are added to history; press `Ctrl-G` to
+drop the most recent suggestion onto the current input line (or use the
+Up arrow to recall it). Normal command output is not yet included in
+context.
 
 ## Model Configuration
 
@@ -233,6 +236,8 @@ ASKSHELL_BASE_URL=<custom API base URL>
 ASKSHELL_API_KEY=<provider API key override>
 ASKSHELL_MODEL=<model name>
 ASKSHELL_TIMEOUT=2m
+ASKSHELL_CONFIRM_TIMEOUT=0s    # 0 = wait forever; e.g. 30s auto-rejects when idle
+ASKSHELL_PICK=1                # non-interactive pick: bare N / yN / eN / xN
 ```
 
 ## SSH
