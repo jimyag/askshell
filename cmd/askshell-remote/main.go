@@ -58,6 +58,7 @@ func rpc(request map[string]any, timeout time.Duration) (map[string]any, error) 
 	if path == "" {
 		return nil, errors.New("ASKSHELL_SOCKET is not set")
 	}
+	//nolint:gosec // the control socket path comes from the local supervisor over the dedicated reverse-forward.
 	conn, err := net.DialTimeout("unix", path, 10*time.Second)
 	if err != nil {
 		return nil, err
@@ -550,11 +551,13 @@ func runShell(_ []string) error {
 		}
 		runtimeDir = created
 	} else {
+		//nolint:gosec // ASKSHELL_REMOTE_DIR is set by the local askshell to the per-session dir it just deployed.
 		if err := os.MkdirAll(filepath.Join(runtimeDir, "rc"), 0o700); err != nil {
 			return err
 		}
 	}
 	defer func() {
+		//nolint:gosec // runtimeDir is the per-session dir created above.
 		_ = os.RemoveAll(runtimeDir)
 	}()
 
@@ -566,6 +569,7 @@ func runShell(_ []string) error {
 	if err := os.WriteFile(rcPath, []byte(rcContent), 0o600); err != nil {
 		return err
 	}
+	//nolint:gosec // shellPath is the helper's resolver for the user's login shell, invoked only with "-i".
 	command := exec.Command(shellPath, "-i")
 	command.Stdin = os.Stdin
 	command.Stdout = os.Stdout
@@ -604,6 +608,7 @@ func startupConfig(backend, rcDir, self string) (rcPath, content, envKey string,
 			"set -e ASKSHELL_FISH_INTEGRATION",
 			fishIntegration(self),
 		}
+		//nolint:gosec // rcDir is generated from the helper's own per-session base.
 		if err := os.MkdirAll(filepath.Join(rcDir, "fish"), 0o700); err != nil {
 			return "", "", "", err
 		}
