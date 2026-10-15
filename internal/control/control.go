@@ -396,8 +396,11 @@ func (s *Server) finishCapture(current *capture, exitCode int) error {
 	return s.store.Save(conversation)
 }
 
-func Marker(sessionID, event string) []byte {
-	return []byte("\x1b]777;askshell;" + sessionID + ";" + event + "\x07")
+// Marker is the OSC sequence a shell hook writes to signal a command event.
+// The supervisor consuming the stream is the session owner, so the marker
+// carries no identity of its own.
+func Marker(event string) []byte {
+	return []byte("\x1b]777;askshell;" + event + "\x07")
 }
 
 type boundedOutput struct {

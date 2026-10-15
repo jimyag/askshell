@@ -281,7 +281,7 @@ func writeEventMarker(event string) error {
 	defer func() {
 		_ = tty.Close()
 	}()
-	if _, err := tty.Write(control.Marker(os.Getenv("ASKSHELL_SESSION_ID"), event)); err != nil {
+	if _, err := tty.Write(control.Marker(event)); err != nil {
 		return fmt.Errorf("write terminal event marker: %w", err)
 	}
 	return nil

@@ -43,9 +43,9 @@ func TestCleanTerminalOutputRemovesControlSequencesAndPromptSpacer(t *testing.T)
 	}
 }
 
-func TestMarkerIncludesSessionAndEvent(t *testing.T) {
-	got := string(Marker("session-1", "start"))
-	want := "\x1b]777;askshell;session-1;start\x07"
+func TestMarkerIncludesEvent(t *testing.T) {
+	got := string(Marker("start"))
+	want := "\x1b]777;askshell;start\x07"
 	if got != want {
 		t.Fatalf("Marker() = %q, want %q", got, want)
 	}

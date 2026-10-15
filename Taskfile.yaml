@@ -42,10 +42,16 @@ tasks:
       - GORACE=atexit_sleep_ms=0 go test -count=1 -trimpath -race -covermode=atomic -coverprofile=coverage.txt ./...
 
   build:
-    desc: Build the AskShell binary
+    desc: Build the embedded remote helpers, then the AskShell binary
     cmds:
+      - sh scripts/build-helpers.sh
       - mkdir -p {{.OUTPUT_DIR}}
       - go build -trimpath -ldflags "{{.LDFLAGS}}" -o {{.OUTPUT_DIR}}/{{.BINARY}} ./cmd/askshell
+
+  helpers:
+    desc: Rebuild internal/remote/helper_linux_* (outputs are committed)
+    cmds:
+      - sh scripts/build-helpers.sh
 
   ci:
     desc: Run all continuous integration checks

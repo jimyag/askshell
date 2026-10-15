@@ -160,7 +160,7 @@ func (s *Session) Run(command *exec.Cmd) error {
 		}
 	}()
 
-	outputErr := copyOutput(os.Stdout, ptmx, s.server, s.ID)
+	outputErr := copyOutput(os.Stdout, ptmx, s.server)
 	waitErr := command.Wait()
 	if outputErr != nil && !errors.Is(outputErr, io.EOF) &&
 		!errors.Is(outputErr, syscall.EIO) {
@@ -187,10 +187,10 @@ func setEnv(environment []string, key, value string) []string {
 	return append(result, prefix+value)
 }
 
-func copyOutput(out io.Writer, ptmx *os.File, server *control.Server, sessionID string) error {
+func copyOutput(out io.Writer, ptmx *os.File, server *control.Server) error {
 	filter := markerFilter{
-		start:  control.Marker(sessionID, "start"),
-		finish: control.Marker(sessionID, "finish"),
+		start:  control.Marker("start"),
+		finish: control.Marker("finish"),
 	}
 	buffer := make([]byte, 32*1024)
 	for {

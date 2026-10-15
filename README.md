@@ -244,12 +244,16 @@ remote$ ? 当前内存使用是否正常
 
 AskShell 会自动使用远端的 zsh 或 fish；远端不需要安装 `askshell`。
 
-AskShell 会为本次连接建立反向 Unix Socket 转发，并向远端 `/tmp` 临时上传
-一个 Python helper。远端退出后 helper 自动删除；模型 API Key、对话上下文
-和模型请求始终留在本机。建议命令仍只放回远端 zsh/fish 输入行，不会自动执行。
+AskShell 会为本次连接建立反向 Unix Socket 转发，并临时上传一个静态编译的
+askshell-remote helper（按远端 `uname` 结果选择 linux/amd64 或 linux/arm64，通过
+stdin 流式写入，仅依赖远端有 `cat`，不需要 scp、sftp 或 base64）。远端退出后
+helper 自动删除；模型 API Key、对话上下文和模型请求始终留在本机。建议命令仍
+只放回远端 zsh/fish 输入行，不会自动执行。
 
-当前远端完整模式要求远端使用 zsh 或 fish，具备 Python 3 和 `base64`，并允许 OpenSSH
-StreamLocal 反向转发。嵌套进入另一层 SSH 或 tmux 后不会继续注入 AskShell。
+当前远端完整模式要求远端使用 zsh 或 fish，架构是 linux/amd64 或 linux/arm64，
+并允许 OpenSSH StreamLocal 反向转发。进入全屏程序（tmux、vim、htop、less 等）
+或嵌套另一层 SSH 后不会注入 AskShell，这些程序的屏幕内容也不会被捕获——这是
+预期行为：tmux 用光标定位重绘屏幕而不是换行滚动，行式捕获无法还原页面。
 
 ## 安全边界
 
