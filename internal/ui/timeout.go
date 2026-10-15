@@ -36,10 +36,7 @@ func readStringTimeout(reader *bufio.Reader, file *os.File, timeout time.Duratio
 		if remaining <= 0 {
 			return "", nil
 		}
-		chunk := min(remaining, time.Second)
-		if chunk < time.Millisecond {
-			chunk = time.Millisecond
-		}
+		chunk := max(min(remaining, time.Second), time.Millisecond)
 		//nolint:gosec // file descriptors fit comfortably in int32.
 		fds := []unix.PollFd{{Fd: int32(file.Fd()), Events: unix.POLLIN}}
 		if _, err := unix.Poll(fds, int(chunk.Milliseconds())); err != nil {
