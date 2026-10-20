@@ -1,6 +1,8 @@
 module github.com/jimyag/askshell
 
-go 1.23.0
+go 1.27
+
+toolchain go1.27.3
 
 require (
 	github.com/anthropics/anthropic-sdk-go v1.42.0
