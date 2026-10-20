@@ -162,13 +162,12 @@ func (s *Session) Run(command *exec.Cmd) error {
 
 	outputErr := copyOutput(os.Stdout, ptmx, s.server)
 	waitErr := command.Wait()
-	if outputErr != nil && !errors.Is(outputErr, io.EOF) &&
+	if !errors.Is(outputErr, io.EOF) &&
 		!errors.Is(outputErr, syscall.EIO) {
 		return fmt.Errorf("read terminal output: %w", outputErr)
 	}
 	if waitErr != nil {
-		var exitError *exec.ExitError
-		if errors.As(waitErr, &exitError) {
+		if exitError, ok := errors.AsType[*exec.ExitError](waitErr); ok {
 			return exitError
 		}
 		return fmt.Errorf("wait for terminal command: %w", waitErr)

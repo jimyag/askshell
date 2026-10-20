@@ -28,8 +28,7 @@ const eventSyncTimeout = 5 * time.Second
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
-		var exitError *exec.ExitError
-		if errors.As(err, &exitError) {
+		if exitError, ok := errors.AsType[*exec.ExitError](err); ok {
 			os.Exit(exitError.ExitCode())
 		}
 		fmt.Fprintln(os.Stderr, "askshell:", err)
