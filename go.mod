@@ -8,8 +8,8 @@ require (
 	github.com/anthropics/anthropic-sdk-go v1.84.0
 	github.com/creack/pty v1.1.24
 	github.com/openai/openai-go/v3 v3.83.0
-	golang.org/x/sys v0.48.0
-	golang.org/x/term v0.34.0
+	golang.org/x/sys v0.49.0
+	golang.org/x/term v0.47.0
 )
 
 require (
